@@ -10,7 +10,17 @@ once that provider is active.
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import argparse
+
 from hermes_cli import memory_setup
+from hermes_cli.subcommands.memory import build_memory_parser
+
+
+def _memory_parser():
+    parser = argparse.ArgumentParser(prog="hermes")
+    subparsers = parser.add_subparsers(dest="command")
+    build_memory_parser(subparsers, cmd_memory=lambda args: None)
+    return parser
 
 
 class TestMemorySetupProviderRouting:
@@ -48,6 +58,54 @@ class TestMemorySetupProviderRouting:
         out = capsys.readouterr().out
         assert "not found" in out
         assert "hermes memory setup" in out
+
+    def test_setup_with_mem0_provider_args_reaches_provider_setup(self):
+        """Provider-specific setup flags must not be rejected by top-level argparse."""
+        ns = _memory_parser().parse_args([
+            "memory",
+            "setup",
+            "mem0",
+            "--mode",
+            "oss",
+            "--oss-llm",
+            "openai",
+            "--oss-llm-key",
+            "dummy",
+            "--oss-embedder",
+            "openai",
+            "--oss-embedder-key",
+            "dummy",
+            "--oss-vector",
+            "qdrant",
+            "--oss-vector-path",
+            "/tmp/mem0_qdrant",
+            "--user-id",
+            "jakub-hrbac",
+            "--dry-run",
+        ])
+
+        assert ns.command == "memory"
+        assert ns.memory_command == "setup"
+        assert ns.provider == "mem0"
+        assert ns.provider_args == [
+            "--mode",
+            "oss",
+            "--oss-llm",
+            "openai",
+            "--oss-llm-key",
+            "dummy",
+            "--oss-embedder",
+            "openai",
+            "--oss-embedder-key",
+            "dummy",
+            "--oss-vector",
+            "qdrant",
+            "--oss-vector-path",
+            "/tmp/mem0_qdrant",
+            "--user-id",
+            "jakub-hrbac",
+            "--dry-run",
+        ]
 
 
 class TestInstallDependenciesRunner:
