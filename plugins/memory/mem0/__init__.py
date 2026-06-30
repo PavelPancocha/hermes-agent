@@ -1,18 +1,21 @@
 """Mem0 memory plugin — MemoryProvider interface.
 
 Server-side LLM fact extraction, semantic search, and automatic deduplication
-via the Mem0 Platform API (cloud) or OSS (self-hosted) via Memory.
+via the Mem0 Platform API (cloud), self-hosted Mem0 REST API, or OSS
+(self-hosted in-process) via Memory.
 
 Original PR #2933 by kartik-mem0, adapted to MemoryProvider ABC.
 
 Configuration
 -------------
 Secret (lives in $HERMES_HOME/.env or the environment):
-  MEM0_API_KEY       — Mem0 Platform API key (required for platform mode)
+  MEM0_API_KEY       — Mem0 API key (required for platform and self-hosted HTTP mode)
+  MEM0_HOST          — Self-hosted Mem0 REST API base URL
 
 Behavioral settings (live in $HERMES_HOME/mem0.json, set via `hermes memory
 setup`):
-  mode               — Backend mode: "platform" (default) or "oss"
+  mode               — Backend mode: "platform" (default), "self_hosted_http",
+                       or "oss"
   user_id            — Canonical user identifier. When set, it is applied
                        uniformly across every gateway (CLI, Telegram, Slack,
                        Discord, …) so the same human gets one merged memory
@@ -20,9 +23,9 @@ setup`):
                        numeric id, Discord snowflake) is used instead.
   agent_id           — Agent identifier (default: hermes)
 
-The matching MEM0_MODE / MEM0_USER_ID / MEM0_AGENT_ID environment variables are
-still read as a backward-compatible fallback, but mem0.json is the canonical
-home for these non-secret settings.
+The matching MEM0_MODE / MEM0_HOST / MEM0_USER_ID / MEM0_AGENT_ID environment
+variables are still read as a backward-compatible fallback, but mem0.json is
+the canonical home for these non-secret settings.
 """
 
 from __future__ import annotations
@@ -54,6 +57,7 @@ _CLIENT_ERROR_TYPES = ("MemoryNotFoundError", "ValidationError")
 # wrote this exact placeholder) still allow gateway-native ids to flow
 # through instead of silently overriding them with the placeholder.
 _DEFAULT_USER_ID = "hermes-user"
+_SELF_HOSTED_HTTP_MODES = {"self_hosted_http", "self-hosted-http", "rest", "http"}
 
 
 def _is_client_error(exc: Exception) -> bool:
@@ -81,6 +85,7 @@ def _load_config() -> dict:
     config = {
         "mode": os.environ.get("MEM0_MODE", "platform"),
         "api_key": os.environ.get("MEM0_API_KEY", ""),
+        "host": os.environ.get("MEM0_HOST", "") or os.environ.get("MEM0_API_URL", ""),
         "agent_id": os.environ.get("MEM0_AGENT_ID", "hermes"),
         "oss": {},
     }
@@ -206,7 +211,8 @@ DELETE_SCHEMA = {
 class Mem0MemoryProvider(MemoryProvider):
     """Mem0 memory with server-side extraction and semantic search.
 
-    Supports Platform API (cloud) and OSS (self-hosted) modes via MEM0_MODE.
+    Supports Platform API (cloud), self-hosted HTTP API, and OSS
+    (self-hosted in-process) modes via MEM0_MODE.
     """
 
     def __init__(self):
@@ -214,6 +220,7 @@ class Mem0MemoryProvider(MemoryProvider):
         self._backend = None
         self._mode = "platform"
         self._api_key = ""
+        self._host = ""
         self._user_id = _DEFAULT_USER_ID
         self._agent_id = "hermes"
         self._channel = "cli"  # gateway channel name (cli/telegram/discord/...)
@@ -239,6 +246,8 @@ class Mem0MemoryProvider(MemoryProvider):
         mode = cfg.get("mode", "platform")
         if mode == "oss":
             return bool(cfg.get("oss", {}).get("vector_store"))
+        if mode in _SELF_HOSTED_HTTP_MODES:
+            return bool(cfg.get("host") and cfg.get("api_key"))
         return bool(cfg.get("api_key"))
 
     def save_config(self, values, hermes_home):
@@ -260,8 +269,10 @@ class Mem0MemoryProvider(MemoryProvider):
         cfg = _load_config()
         mode = cfg.get("mode", "platform")
         api_key_required = mode != "oss"
+        host_required = mode in _SELF_HOSTED_HTTP_MODES
         return [
-            {"key": "api_key", "description": "Mem0 Platform API key", "secret": True, "required": api_key_required, "env_var": "MEM0_API_KEY", "url": "https://app.mem0.ai"},
+            {"key": "api_key", "description": "Mem0 API key", "secret": True, "required": api_key_required, "env_var": "MEM0_API_KEY", "url": "https://app.mem0.ai"},
+            {"key": "host", "description": "Self-hosted Mem0 REST API base URL", "required": host_required, "env_var": "MEM0_HOST"},
             {"key": "user_id", "description": "User identifier", "default": "hermes-user"},
             {"key": "agent_id", "description": "Agent identifier", "default": "hermes"},
             {"key": "rerank", "description": "Enable reranking for recall", "default": "true", "choices": ["true", "false"]},
@@ -272,19 +283,23 @@ class Mem0MemoryProvider(MemoryProvider):
         post_setup(hermes_home, config)
 
     def _create_backend(self):
-        # Lazy-install the mem0 SDK on demand before either backend imports
-        # it. ensure() honors security.allow_lazy_installs (default true) and,
-        # on a sealed Docker venv, redirects the install to the durable
-        # target. On failure we fall through so the import inside the backend
-        # produces the canonical error, captured below.
         try:
-            from tools.lazy_deps import ensure as _lazy_ensure
-            _lazy_ensure("memory.mem0", prompt=False)
-        except ImportError:
-            pass
-        except Exception:
-            pass
-        try:
+            if self._mode in _SELF_HOSTED_HTTP_MODES:
+                from ._backend import SelfHostedHTTPBackend
+                return SelfHostedHTTPBackend(self._host, api_key=self._api_key)
+
+            # Platform and OSS backends import the mem0 SDK. The direct
+            # self-hosted HTTP backend above only uses the REST API and the
+            # core httpx dependency, so it intentionally avoids this lazy
+            # install path.
+            try:
+                from tools.lazy_deps import ensure as _lazy_ensure
+                _lazy_ensure("memory.mem0", prompt=False)
+            except ImportError:
+                pass
+            except Exception:
+                pass
+
             if self._mode == "oss":
                 from ._backend import OSSBackend
                 return OSSBackend(self._config.get("oss", {}))
@@ -342,6 +357,7 @@ class Mem0MemoryProvider(MemoryProvider):
         self._config = _load_config()
         self._mode = self._config.get("mode", "platform")
         self._api_key = self._config.get("api_key", "")
+        self._host = self._config.get("host", "")
         # Resolution order for user_id:
         #   1. Operator-configured MEM0_USER_ID (env or $HERMES_HOME/mem0.json) —
         #      the canonical principal, applied across every gateway so the same
@@ -378,7 +394,12 @@ class Mem0MemoryProvider(MemoryProvider):
         return {"channel": self._channel} if self._channel else {}
 
     def system_prompt_block(self) -> str:
-        mode_label = "platform (cloud API)" if self._mode == "platform" else "OSS (self-hosted)"
+        if self._mode in _SELF_HOSTED_HTTP_MODES:
+            mode_label = "self-hosted HTTP API"
+        elif self._mode == "platform":
+            mode_label = "platform (cloud API)"
+        else:
+            mode_label = "OSS (self-hosted in-process)"
         rerank_note = " Rerank is available on search." if self._mode == "platform" else ""
         return (
             "# Mem0 Memory\n"

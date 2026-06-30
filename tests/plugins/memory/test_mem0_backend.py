@@ -2,7 +2,7 @@
 
 import pytest
 
-from plugins.memory.mem0._backend import Mem0Backend, PlatformBackend, OSSBackend
+from plugins.memory.mem0._backend import Mem0Backend, PlatformBackend, SelfHostedHTTPBackend, OSSBackend
 
 
 class FakePlatformClient:
@@ -108,6 +108,95 @@ class TestPlatformBackend:
         backend, client = self._make()
         backend.delete("m1")
         assert client.calls[0][1] == {"memory_id": "m1"}
+
+
+class FakeHTTPResponse:
+    def __init__(self, data=None):
+        self._data = data if data is not None else {}
+        self.content = b"{}"
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._data
+
+
+class FakeHTTPClient:
+    def __init__(self):
+        self.calls = []
+
+    def post(self, path, **kwargs):
+        self.calls.append(("post", path, kwargs))
+        if path == "/search":
+            return FakeHTTPResponse({"results": [{"id": "m1", "memory": "fact1"}]})
+        return FakeHTTPResponse({"event_id": "evt-1"})
+
+    def get(self, path, **kwargs):
+        self.calls.append(("get", path, kwargs))
+        return FakeHTTPResponse({"count": 1, "results": [{"id": "m1", "memory": "fact1"}]})
+
+    def put(self, path, **kwargs):
+        self.calls.append(("put", path, kwargs))
+        return FakeHTTPResponse({})
+
+    def delete(self, path, **kwargs):
+        self.calls.append(("delete", path, kwargs))
+        return FakeHTTPResponse({})
+
+    def close(self):
+        self.calls.append(("close",))
+
+
+class TestSelfHostedHTTPBackend:
+
+    def _make(self):
+        client = FakeHTTPClient()
+        backend = SelfHostedHTTPBackend.__new__(SelfHostedHTTPBackend)
+        backend._client = client
+        return backend, client
+
+    def test_search_posts_to_self_hosted_search(self):
+        backend, client = self._make()
+        result = backend.search("hello", filters={"user_id": "beka"}, top_k=3)
+        assert client.calls[0][0] == "post"
+        assert client.calls[0][1] == "/search"
+        assert client.calls[0][2]["json"] == {
+            "query": "hello",
+            "filters": {"user_id": "beka"},
+            "top_k": 3,
+        }
+        assert result[0]["id"] == "m1"
+
+    def test_get_all_scopes_by_user_id_query_param(self):
+        backend, client = self._make()
+        result = backend.get_all(filters={"user_id": "beka", "tenant": "ignored"}, page=2, page_size=50)
+        assert client.calls[0][0] == "get"
+        assert client.calls[0][1] == "/memories"
+        assert client.calls[0][2]["params"] == {"user_id": "beka", "page": 2, "page_size": 50}
+        assert result["count"] == 1
+
+    def test_add_posts_to_self_hosted_memories(self):
+        backend, client = self._make()
+        messages = [{"role": "user", "content": "fact"}]
+        result = backend.add(messages, user_id="beka", agent_id="hermes:beka", metadata={"channel": "cli"})
+        assert client.calls[0][0] == "post"
+        assert client.calls[0][1] == "/memories"
+        assert client.calls[0][2]["json"] == {
+            "messages": messages,
+            "user_id": "beka",
+            "agent_id": "hermes:beka",
+            "infer": False,
+            "metadata": {"channel": "cli"},
+        }
+        assert result["event_id"] == "evt-1"
+
+    def test_update_and_delete_use_self_hosted_memory_id_paths(self):
+        backend, client = self._make()
+        assert backend.update("mem-1", "new") == {"result": "Memory updated.", "memory_id": "mem-1"}
+        assert backend.delete("mem-1") == {"result": "Memory deleted.", "memory_id": "mem-1"}
+        assert client.calls[0] == ("put", "/memories/mem-1", {"json": {"text": "new"}})
+        assert client.calls[1] == ("delete", "/memories/mem-1", {})
 
 
 class FakeOSSMemory:

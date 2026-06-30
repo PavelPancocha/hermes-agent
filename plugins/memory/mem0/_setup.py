@@ -67,6 +67,7 @@ def parse_flags(argv: list[str] | None = None) -> dict[str, str]:
     flags: dict[str, str] = {
         "mode": "",
         "api_key": "",
+        "host": "",
         "oss_llm": "openai",
         "oss_llm_key": "",
         "oss_llm_model": "",
@@ -84,12 +85,15 @@ def parse_flags(argv: list[str] | None = None) -> dict[str, str]:
         "oss_vector_password": "",
         "oss_vector_dbname": "",
         "user_id": "",
+        "agent_id": "",
         "dry_run": False,
     }
 
     flag_map = {
         "--mode": "mode",
         "--api-key": "api_key",
+        "--host": "host",
+        "--api-url": "host",
         "--oss-llm": "oss_llm",
         "--oss-llm-key": "oss_llm_key",
         "--oss-llm-model": "oss_llm_model",
@@ -107,6 +111,7 @@ def parse_flags(argv: list[str] | None = None) -> dict[str, str]:
         "--oss-vector-password": "oss_vector_password",
         "--oss-vector-dbname": "oss_vector_dbname",
         "--user-id": "user_id",
+        "--agent-id": "agent_id",
     }
 
     i = 0
@@ -311,6 +316,66 @@ def _setup_platform(hermes_home: str, config: dict, flags: dict[str, str]) -> No
     if env_writes:
         print(f"  API keys saved to .env")
     print(f"\n  Start a new session to activate.\n")
+
+
+def _setup_self_hosted_http(hermes_home: str, config: dict, flags: dict[str, str]) -> None:
+    """Self-hosted Mem0 REST API setup."""
+    existing_config = {}
+    config_path = Path(hermes_home) / "mem0.json"
+    if config_path.exists():
+        try:
+            existing_config = json.loads(config_path.read_text())
+        except Exception:
+            pass
+
+    host = flags.get("host") or existing_config.get("host") or os.environ.get("MEM0_HOST", "") or os.environ.get("MEM0_API_URL", "")
+    api_key = flags.get("api_key") or os.environ.get("MEM0_API_KEY", "")
+    user_id = flags.get("user_id") or existing_config.get("user_id") or os.getenv("USER", "hermes-user")
+    agent_id = flags.get("agent_id") or existing_config.get("agent_id") or os.environ.get("MEM0_AGENT_ID", "hermes")
+
+    if not host:
+        print("  Error: --host or MEM0_HOST is required for self_hosted_http mode.", file=sys.stderr)
+        sys.exit(1)
+    if not api_key:
+        print("  Error: --api-key or MEM0_API_KEY is required for self_hosted_http mode.", file=sys.stderr)
+        sys.exit(1)
+
+    provider_config = dict(existing_config)
+    provider_config.update(
+        {
+            "mode": "self_hosted_http",
+            "host": host.rstrip("/"),
+            "user_id": user_id,
+            "agent_id": agent_id,
+            "rerank": "false",
+        }
+    )
+    env_writes = {"MEM0_API_KEY": api_key, "MEM0_HOST": host.rstrip("/")}
+
+    if flags.get("dry_run"):
+        preview = dict(provider_config)
+        print(f"\n  [dry-run] Would save config: {preview}")
+        print("  [dry-run] Would write MEM0_API_KEY and MEM0_HOST to .env")
+        print("  [dry-run] No files written.\n")
+        return
+
+    from hermes_cli.config import save_config
+    config["memory"]["provider"] = "mem0"
+    save_config(config)
+
+    from plugins.memory.mem0 import Mem0MemoryProvider
+    provider = Mem0MemoryProvider()
+    provider.save_config(provider_config, hermes_home)
+    _write_env(Path(hermes_home) / ".env", env_writes)
+
+    print(f"\n  ✓ Mem0 configured (self-hosted HTTP mode)")
+    print(f"    Host:     {host.rstrip('/')}")
+    print(f"    User:     {user_id}")
+    print(f"    Agent:    {agent_id}")
+    print(f"    API key saved to .env")
+    print(f"    Config saved to mem0.json")
+    print(f"    Provider set in config.yaml")
+    print("\n  Start a new session to activate.\n")
 
 
 def _setup_oss(hermes_home: str, config: dict, flags: dict[str, str]) -> None:
@@ -841,6 +906,10 @@ def post_setup(hermes_home: str, config: dict) -> None:
         _setup_oss(hermes_home, config, flags)
         return
 
+    if flags["mode"] in {"self_hosted_http", "self-hosted-http", "rest", "http"}:
+        _setup_self_hosted_http(hermes_home, config, flags)
+        return
+
     if flags["mode"] == "platform":
         _setup_platform(hermes_home, config, flags)
         return
@@ -848,10 +917,13 @@ def post_setup(hermes_home: str, config: dict) -> None:
     # No --mode flag: show interactive picker
     mode_items = [
         ("Platform", "Mem0 Cloud API (lightweight, just needs an API key)"),
+        ("Self-hosted HTTP", "Use a running Mem0 REST API server"),
         ("Open Source", "Run Mem0 locally (self-hosted LLM + vector store)"),
     ]
     mode_idx = _curses_select("  Select mode", mode_items, 0)
     if mode_idx == 1:
+        _setup_self_hosted_http(hermes_home, config, flags)
+    elif mode_idx == 2:
         flags["_mode_from_flag"] = False
         _setup_oss(hermes_home, config, flags)
     else:

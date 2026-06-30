@@ -47,6 +47,24 @@ class TestParseFlags:
         assert flags["mode"] == "platform"
         assert flags["api_key"] == "sk-test"
 
+    def test_mode_self_hosted_http(self):
+        flags = parse_flags([
+            "--mode", "self_hosted_http",
+            "--host", "https://mem0.example.test/api",
+            "--api-key", "m0sk-test",
+            "--user-id", "beka",
+            "--agent-id", "hermes:beka",
+        ])
+        assert flags["mode"] == "self_hosted_http"
+        assert flags["host"] == "https://mem0.example.test/api"
+        assert flags["api_key"] == "m0sk-test"
+        assert flags["user_id"] == "beka"
+        assert flags["agent_id"] == "hermes:beka"
+
+    def test_mode_self_hosted_http_accepts_api_url_alias(self):
+        flags = parse_flags(["--mode", "rest", "--api-url", "https://mem0.example.test/api"])
+        assert flags["host"] == "https://mem0.example.test/api"
+
     def test_mode_oss_defaults(self):
         flags = parse_flags(["--mode", "oss", "--oss-llm-key", "sk-oai"])
         assert flags["mode"] == "oss"
@@ -193,6 +211,32 @@ class TestPostSetup:
         assert mem0_json["mode"] == "oss"
         assert mem0_json["oss"]["llm"]["provider"] == "openai"
 
+    def test_self_hosted_http_flag_mode(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("sys.argv", [
+            "hermes",
+            "--mode", "self_hosted_http",
+            "--host", "https://mem0.example.test/api",
+            "--api-key", "m0sk-test",
+            "--user-id", "beka",
+            "--agent-id", "hermes:beka",
+        ])
+        monkeypatch.setattr("plugins.memory.mem0._setup.get_hermes_home", lambda: tmp_path)
+        _inject_fake_hermes_cli(monkeypatch)
+        config = {"memory": {}}
+        post_setup(str(tmp_path), config)
+        assert config["memory"]["provider"] == "mem0"
+        env_content = (tmp_path / ".env").read_text()
+        assert "MEM0_API_KEY=m0sk-test" in env_content
+        assert "MEM0_HOST=https://mem0.example.test/api" in env_content
+        mem0_json = json.loads((tmp_path / "mem0.json").read_text())
+        assert mem0_json == {
+            "mode": "self_hosted_http",
+            "host": "https://mem0.example.test/api",
+            "user_id": "beka",
+            "agent_id": "hermes:beka",
+            "rerank": "false",
+        }
+
 
 class TestDryRun:
 
@@ -206,6 +250,22 @@ class TestDryRun:
 
     def test_dry_run_platform_no_files(self, tmp_path, monkeypatch):
         monkeypatch.setattr("sys.argv", ["hermes", "--mode", "platform", "--api-key", "sk-test", "--dry-run"])
+        monkeypatch.setattr("plugins.memory.mem0._setup.get_hermes_home", lambda: tmp_path)
+        _inject_fake_hermes_cli(monkeypatch)
+        config = {"memory": {}}
+        post_setup(str(tmp_path), config)
+        assert not (tmp_path / ".env").exists()
+        assert not (tmp_path / "mem0.json").exists()
+        assert "provider" not in config["memory"]
+
+    def test_dry_run_self_hosted_http_no_files(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("sys.argv", [
+            "hermes",
+            "--mode", "self_hosted_http",
+            "--host", "https://mem0.example.test/api",
+            "--api-key", "m0sk-test",
+            "--dry-run",
+        ])
         monkeypatch.setattr("plugins.memory.mem0._setup.get_hermes_home", lambda: tmp_path)
         _inject_fake_hermes_cli(monkeypatch)
         config = {"memory": {}}

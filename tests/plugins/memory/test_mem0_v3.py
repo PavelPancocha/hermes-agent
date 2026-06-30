@@ -185,6 +185,24 @@ class TestMem0UpdateDelete:
         assert "error" in result
 
 
+class TestMem0BackendCreation:
+    def test_self_hosted_http_does_not_lazy_install_mem0_sdk(self, monkeypatch):
+        def fail_if_called(*args, **kwargs):
+            raise AssertionError("self_hosted_http must not lazy-install mem0ai")
+
+        monkeypatch.setattr("tools.lazy_deps.ensure", fail_if_called)
+        provider = Mem0MemoryProvider()
+        provider._mode = "self_hosted_http"
+        provider._host = "https://mem0.example.test/api"
+        provider._api_key = "test-key"
+        provider._config = {}
+
+        backend = provider._create_backend()
+
+        assert backend is not None
+        assert backend.__class__.__name__ == "SelfHostedHTTPBackend"
+
+
 class TestMem0ErrorHandling:
 
     def _make_provider(self, monkeypatch, backend):

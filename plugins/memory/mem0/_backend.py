@@ -44,7 +44,11 @@ class Mem0Backend(ABC):
 def _unwrap_results(response: Any) -> list:
     """Normalize API response — extract results list from dict or pass through."""
     if isinstance(response, dict):
-        return response.get("results", [])
+        for key in ("results", "data", "memories"):
+            value = response.get(key)
+            if isinstance(value, list):
+                return value
+        return []
     if isinstance(response, list):
         return response
     return []
@@ -88,6 +92,99 @@ class PlatformBackend(Mem0Backend):
     def delete(self, memory_id: str) -> dict:
         self._client.delete(memory_id=memory_id)
         return {"result": "Memory deleted.", "memory_id": memory_id}
+
+
+class SelfHostedHTTPBackend(Mem0Backend):
+    """Direct HTTP backend for the self-hosted Mem0 REST server."""
+
+    def __init__(self, host: str, api_key: str = "", timeout_seconds: float = 30.0):
+        import httpx
+
+        if not host:
+            raise ValueError("Mem0 self-hosted HTTP host is required.")
+
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        if api_key:
+            headers["X-API-Key"] = api_key
+
+        self._client = httpx.Client(
+            base_url=host.rstrip("/"),
+            headers=headers,
+            timeout=timeout_seconds,
+        )
+
+    @staticmethod
+    def _decode_response(response) -> dict[str, Any] | list[Any]:
+        response.raise_for_status()
+        if not response.content:
+            return {}
+        return response.json()
+
+    @staticmethod
+    def _list_params(filters: dict, page: int, page_size: int) -> dict[str, Any]:
+        params: dict[str, Any] = {}
+        for key in ("user_id", "agent_id", "run_id"):
+            value = filters.get(key)
+            if value:
+                params[key] = value
+        params["page"] = page
+        params["page_size"] = page_size
+        return params
+
+    def search(self, query: str, *, filters: dict, top_k: int = 10, rerank: bool = True) -> list[dict]:
+        payload = {
+            "query": query,
+            "filters": filters,
+            "top_k": top_k,
+        }
+        response = self._client.post("/search", json=payload)
+        return _unwrap_results(self._decode_response(response))
+
+    def get_all(self, *, filters: dict, page: int = 1, page_size: int = 100) -> dict:
+        response = self._client.get("/memories", params=self._list_params(filters, page, page_size))
+        data = self._decode_response(response)
+        results = _unwrap_results(data)
+        count = data.get("count", len(results)) if isinstance(data, dict) else len(results)
+        return {"results": results, "count": count}
+
+    def add(
+        self,
+        messages: list,
+        *,
+        user_id: str,
+        agent_id: str,
+        infer: bool = False,
+        metadata: dict | None = None,
+    ) -> dict:
+        payload: dict[str, Any] = {
+            "messages": messages,
+            "user_id": user_id,
+            "agent_id": agent_id,
+            "infer": infer,
+        }
+        if metadata:
+            payload["metadata"] = metadata
+        response = self._client.post("/memories", json=payload)
+        data = self._decode_response(response)
+        return data if isinstance(data, dict) else {"results": data}
+
+    def update(self, memory_id: str, text: str) -> dict:
+        response = self._client.put(f"/memories/{memory_id}", json={"text": text})
+        data = self._decode_response(response)
+        if isinstance(data, dict) and data:
+            return data
+        return {"result": "Memory updated.", "memory_id": memory_id}
+
+    def delete(self, memory_id: str) -> dict:
+        response = self._client.delete(f"/memories/{memory_id}")
+        self._decode_response(response)
+        return {"result": "Memory deleted.", "memory_id": memory_id}
+
+    def close(self) -> None:
+        self._client.close()
 
 
 class OSSBackend(Mem0Backend):

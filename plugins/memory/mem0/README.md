@@ -25,14 +25,32 @@ Behavioral settings live in `$HERMES_HOME/mem0.json` (set them via `hermes memor
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `mode` | `platform` | `platform` (Mem0 Cloud) or `oss` (self-hosted) |
+| `mode` | `platform` | `platform` (Mem0 Cloud), `self_hosted_http` (self-hosted REST API), or `oss` (in-process self-hosted) |
+| `host` | | Self-hosted Mem0 REST API base URL for `self_hosted_http` mode |
 | `user_id` | `hermes-user` | User identifier on Mem0 |
 | `agent_id` | `hermes` | Agent identifier |
 | `rerank` | `true` | Rerank search results for relevance (platform mode only) |
 
-## OSS (Self-Hosted) Mode
+## Self-Hosted HTTP Mode
 
-Run Mem0 locally with your own LLM, embedder, and vector store.
+Use this when you already run the Mem0 REST server and want Hermes to call its
+`/memories` and `/search` endpoints directly.
+
+```bash
+hermes memory setup mem0 --mode self_hosted_http \
+  --host https://mem0-api.example.com \
+  --api-key m0sk-... \
+  --user-id person:pavel \
+  --agent-id hermes:pavel-cli
+```
+
+Secrets are stored in `$HERMES_HOME/.env`; `host`, `user_id`, and `agent_id`
+are stored in `$HERMES_HOME/mem0.json`.
+
+## OSS (Self-Hosted In-Process) Mode
+
+Run Mem0 locally/in-process with your own LLM, embedder, and vector store. This
+does not call an already-running Mem0 REST server.
 
 ### Interactive Setup
 
@@ -62,13 +80,16 @@ hermes memory setup mem0 --mode oss \
 
 | Flag | Description |
 |------|-------------|
-| `--mode` | `platform` or `oss` |
+| `--mode` | `platform`, `self_hosted_http`, or `oss` |
+| `--host` / `--api-url` | Self-hosted Mem0 REST API base URL |
+| `--api-key` | Mem0 API key for `platform` or `self_hosted_http` |
 | `--oss-llm` | LLM provider (default: openai) |
 | `--oss-llm-key` | LLM API key |
 | `--oss-embedder` | Embedder provider (default: openai) |
 | `--oss-vector` | Vector store (default: qdrant) |
 | `--oss-vector-path` | Qdrant local path |
 | `--user-id` | User identifier |
+| `--agent-id` | Agent identifier |
 
 ## Switching Modes
 
