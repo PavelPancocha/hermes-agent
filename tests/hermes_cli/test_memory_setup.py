@@ -129,6 +129,61 @@ def test_cmd_setup_provider_clears_before_provider_post_setup(monkeypatch):
     assert events == ["clear", "install", "post_setup"]
 
 
+def test_cmd_setup_provider_skips_mem0_dependency_install_for_self_hosted_http(monkeypatch):
+    events = []
+
+    class PostSetupProvider:
+        def post_setup(self, hermes_home, config):
+            events.append("post_setup")
+
+    monkeypatch.setattr(memory_setup, "_get_available_providers", lambda: [("mem0", "API key / local", PostSetupProvider())])
+    monkeypatch.setattr(memory_setup, "_clear_interactive_transition", lambda: events.append("clear"), raising=False)
+    monkeypatch.setattr(memory_setup, "_install_dependencies", lambda name: events.append(f"install:{name}"))
+    monkeypatch.setattr(memory_setup, "get_hermes_home", lambda: "/tmp/hermes-test")
+    monkeypatch.setattr("hermes_cli.config.load_config", lambda: {"memory": {}})
+    monkeypatch.setattr(
+        memory_setup.sys,
+        "argv",
+        [
+            "hermes",
+            "memory",
+            "setup",
+            "mem0",
+            "--mode",
+            "self_hosted_http",
+            "--host",
+            "https://mem0.example/api",
+        ],
+    )
+
+    memory_setup.cmd_setup_provider("mem0")
+
+    assert events == ["clear", "post_setup"]
+
+
+def test_cmd_setup_provider_installs_mem0_dependencies_for_platform_mode(monkeypatch):
+    events = []
+
+    class PostSetupProvider:
+        def post_setup(self, hermes_home, config):
+            events.append("post_setup")
+
+    monkeypatch.setattr(memory_setup, "_get_available_providers", lambda: [("mem0", "API key / local", PostSetupProvider())])
+    monkeypatch.setattr(memory_setup, "_clear_interactive_transition", lambda: events.append("clear"), raising=False)
+    monkeypatch.setattr(memory_setup, "_install_dependencies", lambda name: events.append(f"install:{name}"))
+    monkeypatch.setattr(memory_setup, "get_hermes_home", lambda: "/tmp/hermes-test")
+    monkeypatch.setattr("hermes_cli.config.load_config", lambda: {"memory": {}})
+    monkeypatch.setattr(
+        memory_setup.sys,
+        "argv",
+        ["hermes", "memory", "setup", "mem0", "--mode", "platform"],
+    )
+
+    memory_setup.cmd_setup_provider("mem0")
+
+    assert events == ["clear", "install:mem0", "post_setup"]
+
+
 def test_cmd_status_prefers_provider_status_config(monkeypatch, capsys):
     class StatusProvider:
         def get_status_config(self, provider_config):

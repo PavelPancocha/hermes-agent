@@ -173,6 +173,26 @@ def _install_dependencies(provider_name: str) -> None:
                     print(f"    {install_cmd}")
 
 
+def _setup_mode_from_argv(argv: list[str] | None = None) -> str:
+    """Return provider setup --mode from argv, if one was supplied."""
+    args = list(argv if argv is not None else sys.argv[1:])
+    for idx, arg in enumerate(args):
+        if arg == "--mode" and idx + 1 < len(args):
+            return args[idx + 1].strip().lower()
+        if arg.startswith("--mode="):
+            return arg.split("=", 1)[1].strip().lower()
+    return ""
+
+
+def _should_install_dependencies(provider_name: str, argv: list[str] | None = None) -> bool:
+    """Whether generic plugin.yaml dependencies should be installed up front."""
+    mode = _setup_mode_from_argv(argv)
+    normalized_mode = mode.replace("-", "_")
+    if provider_name == "mem0" and normalized_mode in {"self_hosted_http", "rest", "http"}:
+        return False
+    return True
+
+
 def _get_available_providers() -> list:
     """Discover memory providers from plugins/memory/.
 
@@ -233,7 +253,8 @@ def cmd_setup_provider(provider_name: str) -> None:
 
     _clear_interactive_transition()
 
-    _install_dependencies(name)
+    if _should_install_dependencies(name):
+        _install_dependencies(name)
 
     config = load_config()
     if not isinstance(config.get("memory"), dict):
