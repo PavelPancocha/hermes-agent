@@ -92,6 +92,41 @@ class TestMem0V3Tools:
         assert backend.captured[0][2]["filters"] == {"user_id": "u123"}
         assert backend.captured[0][2]["top_k"] == 3
 
+    def test_tool_args_cannot_override_configured_user_id(self, monkeypatch):
+        backend = FakeBackend()
+        provider = self._make_provider(monkeypatch, backend)
+
+        provider.handle_tool_call(
+            "mem0_search",
+            {
+                "query": "hello",
+                "user_id": "other-user",
+                "agent_id": "other-agent",
+                "filters": {"user_id": "other-user"},
+            },
+        )
+        provider.handle_tool_call("mem0_list", {"user_id": "other-user"})
+        provider.handle_tool_call(
+            "mem0_add",
+            {
+                "content": "user likes dark mode",
+                "user_id": "other-user",
+                "agent_id": "other-agent",
+            },
+        )
+
+        assert backend.captured[0] == (
+            "search",
+            "hello",
+            {"filters": {"user_id": "u123"}, "top_k": 10, "rerank": True},
+        )
+        assert backend.captured[1] == (
+            "get_all",
+            {"filters": {"user_id": "u123"}, "page": 1, "page_size": 100},
+        )
+        assert backend.captured[2][2]["user_id"] == "u123"
+        assert backend.captured[2][2]["agent_id"] == "hermes"
+
     def test_search_rerank_default_true(self, monkeypatch):
         backend = FakeBackend()
         provider = self._make_provider(monkeypatch, backend)
@@ -391,6 +426,13 @@ class TestMem0V3Config:
         schemas = provider.get_tool_schemas()
         names = [s["name"] for s in schemas]
         assert names == ["mem0_list", "mem0_search", "mem0_add", "mem0_update", "mem0_delete"]
+
+    def test_tool_schemas_do_not_expose_scope_override_fields(self):
+        provider = Mem0MemoryProvider()
+        forbidden = {"user_id", "agent_id", "run_id", "filters"}
+        for schema in provider.get_tool_schemas():
+            properties = schema["parameters"].get("properties", {})
+            assert not forbidden.intersection(properties), schema["name"]
 
     def test_system_prompt_new_tool_names(self):
         provider = Mem0MemoryProvider()
