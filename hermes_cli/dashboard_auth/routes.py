@@ -20,6 +20,7 @@ import threading
 import time
 from collections import defaultdict, deque
 from typing import Any, Deque, Dict, Tuple
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -180,7 +181,17 @@ async def api_auth_providers() -> Any:
 
 
 @router.get("/auth/login", name="auth_login")
-async def auth_login(request: Request, provider: str, next: str = ""):
+async def auth_login(request: Request, provider: str = "", next: str = ""):
+    if not provider:
+        prefix = _prefix(request)
+        safe_next = _validate_post_login_target(next)
+        if safe_next:
+            next_qs = quote(safe_next, safe="")
+            return RedirectResponse(
+                url=f"{prefix}/login?next={next_qs}", status_code=302
+            )
+        return RedirectResponse(url=f"{prefix}/login", status_code=302)
+
     p = get_provider(provider)
     if p is None:
         raise HTTPException(
@@ -239,7 +250,6 @@ async def auth_login(request: Request, provider: str, next: str = ""):
     # ``next=//evil.example`` can't poison the cookie.
     safe_next = _validate_post_login_target(next)
     if safe_next:
-        from urllib.parse import quote
         pkce = f"{pkce};next={quote(safe_next, safe='')}"
     set_pkce_cookie(
         resp, payload=pkce, use_https=detect_https(request),

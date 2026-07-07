@@ -298,6 +298,18 @@ def test_login_unknown_provider_returns_404(gated_app):
     assert r.status_code == 404
 
 
+def test_login_without_provider_redirects_to_login_page(gated_app):
+    r = gated_app.get("/auth/login", follow_redirects=False)
+    assert r.status_code == 302
+    assert r.headers["location"] == "/login"
+
+    with_next = gated_app.get(
+        "/auth/login?next=%2Fsessions", follow_redirects=False
+    )
+    assert with_next.status_code == 302
+    assert with_next.headers["location"] == "/login?next=%2Fsessions"
+
+
 def test_login_non_interactive_provider_returns_404_not_500(gated_app):
     """Regression: a token-only provider (drain) has no login flow, so
     /auth/login?provider=drain-secret must 404 (not 500 on start_login) and it
