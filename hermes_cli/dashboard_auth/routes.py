@@ -195,6 +195,17 @@ async def auth_login(request: Request, provider: str, next: str = ""):
 
     try:
         ls = p.start_login(redirect_uri=_redirect_uri(request))
+    except NotImplementedError:
+        audit_log(
+            AuditEvent.LOGIN_FAILURE,
+            provider=provider,
+            reason="provider_has_no_redirect_login",
+            ip=_client_ip(request),
+        )
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider does not support redirect login: {provider!r}",
+        )
     except ProviderError as e:
         audit_log(
             AuditEvent.LOGIN_FAILURE,
