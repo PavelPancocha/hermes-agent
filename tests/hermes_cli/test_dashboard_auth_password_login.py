@@ -216,6 +216,25 @@ class TestProviderListFlag:
 
 
 # ---------------------------------------------------------------------------
+# HTML gate redirect behavior for password providers
+# ---------------------------------------------------------------------------
+
+
+class TestPasswordProviderGateRedirect:
+    def test_gated_html_redirects_to_login_form_not_oauth_start(self, gated_app):
+        resp = gated_app.get("/", follow_redirects=False)
+        assert resp.status_code == 302
+        assert resp.headers["location"] in ("/login", "/login?next=%2F")
+        assert "hermes_sso_attempt" not in resp.headers.get("set-cookie", "")
+
+    def test_password_provider_oauth_start_returns_404_not_500(self, gated_app):
+        resp = gated_app.get(
+            "/auth/login?provider=testpw&next=%2F", follow_redirects=False
+        )
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
 # /auth/password-login — end-to-end through the real middleware
 # ---------------------------------------------------------------------------
 
