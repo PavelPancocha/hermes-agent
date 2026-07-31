@@ -1128,13 +1128,18 @@ def _build_child_agent(
             child_toolsets = _preserve_parent_mcp_toolsets(
                 child_toolsets, parent_toolsets
             )
-        child_toolsets = _strip_blocked_tools(child_toolsets)
-    elif parent_agent and parent_enabled is not None:
-        child_toolsets = _strip_blocked_tools(parent_enabled)
-    elif parent_toolsets:
-        child_toolsets = _strip_blocked_tools(sorted(parent_toolsets))
     else:
-        child_toolsets = _strip_blocked_tools(DEFAULT_TOOLSETS)
+        if parent_agent and parent_enabled is not None:
+            child_toolsets = list(parent_enabled)
+        elif parent_toolsets:
+            child_toolsets = sorted(parent_toolsets)
+        else:
+            child_toolsets = list(DEFAULT_TOOLSETS)
+        if not _get_inherit_mcp_toolsets():
+            child_toolsets = [
+                t for t in child_toolsets if not _is_mcp_toolset_name(t)
+            ]
+    child_toolsets = _strip_blocked_tools(child_toolsets)
 
     # Orchestrators retain the 'delegation' toolset that _strip_blocked_tools
     # removed.  The re-add is unconditional on parent-toolset membership because
