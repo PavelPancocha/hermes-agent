@@ -135,11 +135,12 @@ class SelfHostedBackend(Mem0Backend):
             for key in ("user_id", "agent_id", "run_id")
             if (value := filters.get(key))
         }
-        params.update({"page": page, "page_size": page_size})
+        params["top_k"] = min(page * page_size, 1000)
         response = self._json("GET", "/memories", params=params)
         results = _unwrap_results(response)
         count = response.get("count", len(results)) if isinstance(response, dict) else len(results)
-        return {"results": results, "count": count}
+        start = (page - 1) * page_size
+        return {"results": results[start : start + page_size], "count": count}
 
     def add(
         self,

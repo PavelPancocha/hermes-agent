@@ -203,7 +203,7 @@ class TestSelfHostedBackend:
 
     # --- search ----------------------------------------------------------
 
-    def test_get_all_uses_scoped_pagination(self):
+    def test_get_all_maps_pagination_to_supported_top_k_and_slices(self):
         server = _StubServer(rows=3)
         result = _backend(server).get_all(
             filters={"user_id": "beka", "ignored": "value"},
@@ -216,9 +216,9 @@ class TestSelfHostedBackend:
         assert request.url.path == "/memories"
         assert dict(request.url.params) == {
             "user_id": "beka",
-            "page": "2",
-            "page_size": "2",
+            "top_k": "4",
         }
+        assert result["results"] == [{"id": "m2", "memory": "f2"}]
         assert result["count"] == 3
 
 
