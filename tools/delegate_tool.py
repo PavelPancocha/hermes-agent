@@ -1278,13 +1278,19 @@ def _build_child_agent(
             child_toolsets = _preserve_parent_mcp_toolsets(
                 child_toolsets, parent_toolsets
             )
-        child_toolsets = _strip_blocked_tools(child_toolsets)
-    elif parent_agent and parent_enabled is not None:
-        child_toolsets = _strip_blocked_tools(parent_enabled)
-    elif parent_toolsets:
-        child_toolsets = _strip_blocked_tools(sorted(parent_toolsets))
     else:
-        child_toolsets = _strip_blocked_tools(DEFAULT_TOOLSETS)
+        if parent_agent and parent_enabled is not None:
+            child_toolsets = list(parent_enabled)
+        elif parent_toolsets:
+            child_toolsets = sorted(parent_toolsets)
+        else:
+            child_toolsets = list(DEFAULT_TOOLSETS)
+        if not _get_inherit_mcp_toolsets():
+            child_toolsets = [
+                toolset for toolset in child_toolsets
+                if not _is_mcp_toolset_name(toolset)
+            ]
+    child_toolsets = _strip_blocked_tools(child_toolsets)
 
     # Blocked tools also live inside mixed platform bundles (hermes-cli,
     # hermes-telegram, etc.) that _strip_blocked_tools must keep because they

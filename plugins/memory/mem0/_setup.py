@@ -85,6 +85,7 @@ def parse_flags(argv: list[str] | None = None) -> dict[str, str]:
         "oss_vector_password": "",
         "oss_vector_dbname": "",
         "user_id": "",
+        "agent_id": "",
         "dry_run": False,
     }
 
@@ -92,6 +93,7 @@ def parse_flags(argv: list[str] | None = None) -> dict[str, str]:
         "--mode": "mode",
         "--api-key": "api_key",
         "--host": "host",
+        "--api-url": "host",
         "--oss-llm": "oss_llm",
         "--oss-llm-key": "oss_llm_key",
         "--oss-llm-model": "oss_llm_model",
@@ -109,6 +111,7 @@ def parse_flags(argv: list[str] | None = None) -> dict[str, str]:
         "--oss-vector-password": "oss_vector_password",
         "--oss-vector-dbname": "oss_vector_dbname",
         "--user-id": "user_id",
+        "--agent-id": "agent_id",
     }
 
     i = 0
@@ -402,7 +405,9 @@ def _setup_selfhosted(hermes_home: str, config: dict, flags: dict[str, str]) -> 
     user_id = flags.get("user_id") or _prompt(
         "User identifier", default=provider_config.get("user_id") or "hermes-user"
     )
-    agent_id = _prompt("Agent identifier", default=provider_config.get("agent_id") or "hermes")
+    agent_id = flags.get("agent_id") or _prompt(
+        "Agent identifier", default=provider_config.get("agent_id") or "hermes"
+    )
 
     if flags.get("dry_run"):
         print(f"\n  [dry-run] Would save config: host={host}, user_id={user_id}, agent_id={agent_id}")
@@ -412,7 +417,10 @@ def _setup_selfhosted(hermes_home: str, config: dict, flags: dict[str, str]) -> 
         print("  [dry-run] No files written.\n")
         return
 
-    provider_config["mode"] = "platform"  # routing: oss > host > platform; host wins
+    legacy_modes = {"self_hosted_http", "self-hosted-http", "rest", "http"}
+    provider_config["mode"] = (
+        "self_hosted_http" if flags.get("mode") in legacy_modes else "platform"
+    )  # routing remains oss > host > platform; host wins
     provider_config["host"] = host
     provider_config["user_id"] = user_id
     provider_config["agent_id"] = agent_id
@@ -977,7 +985,14 @@ def post_setup(hermes_home: str, config: dict) -> None:
         _setup_oss(hermes_home, config, flags)
         return
 
-    if flags["mode"] in ("selfhosted", "self-hosted"):
+    if flags["mode"] in (
+        "selfhosted",
+        "self-hosted",
+        "self_hosted_http",
+        "self-hosted-http",
+        "rest",
+        "http",
+    ):
         _setup_selfhosted(hermes_home, config, flags)
         return
 

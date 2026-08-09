@@ -216,6 +216,26 @@ class TestPostSetup:
         assert mem0_json["host"] == "http://localhost:8888"  # trailing slash stripped
         assert mem0_json["user_id"] == "hermes-user"
 
+    def test_legacy_self_hosted_http_mode_keeps_deployed_contract(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("sys.argv", [
+            "hermes", "--mode", "self_hosted_http",
+            "--api-url", "https://mem0.example.test/api/",
+            "--api-key", "admin-key", "--user-id", "beka",
+            "--agent-id", "hermes:beka",
+        ])
+        monkeypatch.setattr("plugins.memory.mem0._setup.get_hermes_home", lambda: tmp_path)
+        monkeypatch.setattr("plugins.memory.mem0._setup._check_selfhosted_server", lambda h: None)
+        _inject_fake_hermes_cli(monkeypatch)
+        config = {"memory": {}}
+
+        post_setup(str(tmp_path), config)
+
+        mem0_json = json.loads((tmp_path / "mem0.json").read_text())
+        assert mem0_json["mode"] == "self_hosted_http"
+        assert mem0_json["host"] == "https://mem0.example.test/api"
+        assert mem0_json["user_id"] == "beka"
+        assert mem0_json["agent_id"] == "hermes:beka"
+
 
 class TestDryRun:
 
@@ -229,5 +249,4 @@ class TestConnectivityChecks:
     def test_qdrant_path_writable(self, tmp_path):
         ok, msg = _check_qdrant_path(str(tmp_path / "qdrant"))
         assert ok is True
-
 

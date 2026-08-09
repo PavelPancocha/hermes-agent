@@ -238,6 +238,27 @@ def _get_available_providers() -> list:
     return results
 
 
+def _should_install_dependencies(provider_name: str, argv: list[str] | None = None) -> bool:
+    """Skip the Mem0 SDK for direct self-hosted HTTP setups."""
+    args = list(argv if argv is not None else sys.argv[1:])
+    mode = ""
+    for index, arg in enumerate(args):
+        if arg == "--mode" and index + 1 < len(args):
+            mode = args[index + 1]
+            break
+        if arg.startswith("--mode="):
+            mode = arg.split("=", 1)[1]
+            break
+    mode = mode.lower().replace("-", "_")
+    return provider_name != "mem0" or mode not in {
+        "selfhosted",
+        "self_hosted",
+        "self_hosted_http",
+        "rest",
+        "http",
+    }
+
+
 # ---------------------------------------------------------------------------
 # Setup wizard
 # ---------------------------------------------------------------------------
@@ -262,7 +283,8 @@ def cmd_setup_provider(provider_name: str) -> None:
 
     _clear_interactive_transition()
 
-    _install_dependencies(name)
+    if _should_install_dependencies(name):
+        _install_dependencies(name)
 
     config = load_config()
     if not isinstance(config.get("memory"), dict):

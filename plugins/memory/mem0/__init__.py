@@ -265,8 +265,17 @@ class Mem0MemoryProvider(MemoryProvider):
         post_setup(hermes_home, config)
 
     def _create_backend(self):
-        # Lazy-install the mem0 SDK on demand before either backend imports
-        # it. ensure() honors security.allow_lazy_installs (default true) and,
+        if self._mode != "oss" and self._host:
+            try:
+                from ._backend import SelfHostedBackend
+                return SelfHostedBackend(self._api_key, self._host)
+            except Exception as e:
+                logger.error("Mem0 backend failed to initialize (%s mode): %s", self._mode, e)
+                self._init_error = str(e)
+                return None
+
+        # Platform and OSS need the mem0 SDK; direct HTTP above does not.
+        # ensure() honors security.allow_lazy_installs (default true) and,
         # on a sealed Docker venv, redirects the install to the durable
         # target. On failure we fall through so the import inside the backend
         # produces the canonical error, captured below.
@@ -281,9 +290,6 @@ class Mem0MemoryProvider(MemoryProvider):
             if self._mode == "oss":
                 from ._backend import OSSBackend
                 return OSSBackend(self._config.get("oss", {}))
-            if self._host:
-                from ._backend import SelfHostedBackend
-                return SelfHostedBackend(self._api_key, self._host)
             from ._backend import PlatformBackend
             return PlatformBackend(self._api_key)
         except Exception as e:

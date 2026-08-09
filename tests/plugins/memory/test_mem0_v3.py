@@ -71,6 +71,24 @@ class TestMem0V3Tools:
         assert call[2]["agent_id"] == "hermes"
         assert "event_id" in result
 
+    def test_tool_args_cannot_override_configured_scope(self, monkeypatch):
+        backend = FakeBackend()
+        provider = self._make_provider(monkeypatch, backend)
+
+        provider.handle_tool_call("mem0_search", {
+            "query": "hello", "user_id": "other", "filters": {"user_id": "other"},
+        })
+        provider.handle_tool_call("mem0_add", {
+            "content": "fact", "user_id": "other", "agent_id": "other",
+        })
+
+        assert backend.captured[0][2]["filters"] == {"user_id": "u123"}
+        assert backend.captured[1][2]["user_id"] == "u123"
+        assert backend.captured[1][2]["agent_id"] == "hermes"
+        forbidden = {"user_id", "agent_id", "run_id", "filters"}
+        for schema in provider.get_tool_schemas():
+            assert forbidden.isdisjoint(schema["parameters"].get("properties", {}))
+
 
     def test_old_tool_names_return_unknown(self, monkeypatch):
         backend = FakeBackend()
@@ -380,6 +398,17 @@ class TestCreateBackendRouting:
         assert isinstance(backend, SH)
         assert captured["args"] == ("adminkey", "http://sh:8888")
 
+    def test_selfhosted_does_not_lazy_install_mem0_sdk(self, monkeypatch):
+        def fail_if_called(*args, **kwargs):
+            raise AssertionError("self-hosted HTTP must not install mem0ai")
+
+        monkeypatch.setattr("tools.lazy_deps.ensure", fail_if_called)
+        provider = self._provider(
+            monkeypatch, host="http://sh:8888", api_key="adminkey"
+        )
+
+        assert provider._create_backend() is not None
+
 
     def test_oss_mode_takes_precedence_over_host(self, monkeypatch):
         class OB(_SentinelBackend):
@@ -407,5 +436,3 @@ class TestSelfHostedConfig:
     def test_load_config_reads_mem0_host_env(self, monkeypatch):
         monkeypatch.setenv("MEM0_HOST", "http://localhost:8888")
         assert mem0_plugin._load_config()["host"] == "http://localhost:8888"
-
-

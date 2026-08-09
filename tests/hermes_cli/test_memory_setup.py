@@ -96,3 +96,30 @@ def test_install_dependencies_force_reinstalls_versioned_specs(tmp_path, monkeyp
 
     assert installed, "force=True must reach the install step"
     assert any("mem0ai>=2.0.10,<3" in specs for specs in installed)
+
+
+def test_self_hosted_mem0_setup_skips_sdk_install(monkeypatch):
+    events = []
+
+    class Provider:
+        def post_setup(self, hermes_home, config):
+            events.append("setup")
+
+    monkeypatch.setattr(
+        memory_setup,
+        "_get_available_providers",
+        lambda: [("mem0", "API key / local", Provider())],
+    )
+    monkeypatch.setattr(memory_setup, "_clear_interactive_transition", lambda: None)
+    monkeypatch.setattr(memory_setup, "_install_dependencies", lambda name: events.append("install"))
+    monkeypatch.setattr(memory_setup, "get_hermes_home", lambda: "/tmp/hermes-test")
+    monkeypatch.setattr("hermes_cli.config.load_config", lambda: {"memory": {}})
+    monkeypatch.setattr(
+        memory_setup.sys,
+        "argv",
+        ["hermes", "memory", "setup", "mem0", "--mode", "self_hosted_http"],
+    )
+
+    memory_setup.cmd_setup_provider("mem0")
+
+    assert events == ["setup"]
