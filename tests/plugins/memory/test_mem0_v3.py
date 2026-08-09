@@ -78,13 +78,15 @@ class TestMem0V3Tools:
         provider.handle_tool_call("mem0_search", {
             "query": "hello", "user_id": "other", "filters": {"user_id": "other"},
         })
+        provider.handle_tool_call("mem0_list", {"user_id": "other"})
         provider.handle_tool_call("mem0_add", {
             "content": "fact", "user_id": "other", "agent_id": "other",
         })
 
         assert backend.captured[0][2]["filters"] == {"user_id": "u123"}
-        assert backend.captured[1][2]["user_id"] == "u123"
-        assert backend.captured[1][2]["agent_id"] == "hermes"
+        assert backend.captured[1][1]["filters"] == {"user_id": "u123"}
+        assert backend.captured[2][2]["user_id"] == "u123"
+        assert backend.captured[2][2]["agent_id"] == "hermes"
         forbidden = {"user_id", "agent_id", "run_id", "filters"}
         for schema in provider.get_tool_schemas():
             assert forbidden.isdisjoint(schema["parameters"].get("properties", {}))
@@ -260,11 +262,11 @@ class TestMem0Prefetch:
 
 class TestMem0V3Config:
 
-    def test_tool_schemas_four_tools(self):
+    def test_tool_schemas_keep_mem0_list_compatibility(self):
         provider = Mem0MemoryProvider()
         schemas = provider.get_tool_schemas()
         names = [s["name"] for s in schemas]
-        assert names == ["mem0_search", "mem0_add", "mem0_update", "mem0_delete"]
+        assert names == ["mem0_list", "mem0_search", "mem0_add", "mem0_update", "mem0_delete"]
 
     def test_system_prompt_new_tool_names(self):
         provider = Mem0MemoryProvider()
@@ -274,7 +276,7 @@ class TestMem0V3Config:
         assert "mem0_add" in block
         assert "mem0_update" in block
         assert "mem0_delete" in block
-        assert "mem0_list" not in block
+        assert "mem0_list" in block
         assert "mem0_profile" not in block
         assert "mem0_conclude" not in block
 

@@ -114,6 +114,25 @@ def _load_config() -> dict:
 # Tool schemas
 # ---------------------------------------------------------------------------
 
+LIST_SCHEMA = {
+    "name": "mem0_list",
+    "description": (
+        "List all stored memories about the user, unranked and paginated. "
+        "Use for a full overview or audit; prefer mem0_search for a specific question."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "page": {"type": "integer", "description": "Page number (default: 1)."},
+            "page_size": {
+                "type": "integer",
+                "description": "Results per page (default: 100, max: 200).",
+            },
+        },
+        "required": [],
+    },
+}
+
 SEARCH_SCHEMA = {
     "name": "mem0_search",
     "description": (
@@ -414,7 +433,7 @@ class Mem0MemoryProvider(MemoryProvider):
             "results surface; one search is rarely enough. Keep searching until "
             "you have every fact the question needs before you answer.\n"
             "Tools: mem0_search to find memories, mem0_add to store facts, "
-            f"mem0_update and mem0_delete to manage by ID.{rerank_note}"
+            f"mem0_list for a full overview, mem0_update and mem0_delete to manage by ID.{rerank_note}"
         )
 
     def on_turn_start(self, turn_number: int, message: str, **kwargs) -> None:
@@ -518,7 +537,7 @@ class Mem0MemoryProvider(MemoryProvider):
             self._sync_thread.start()
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
-        return [SEARCH_SCHEMA, ADD_SCHEMA, UPDATE_SCHEMA, DELETE_SCHEMA]
+        return [LIST_SCHEMA, SEARCH_SCHEMA, ADD_SCHEMA, UPDATE_SCHEMA, DELETE_SCHEMA]
 
     def handle_tool_call(self, tool_name: str, args: dict, **kwargs) -> str:
         if self._backend is None:
@@ -537,7 +556,33 @@ class Mem0MemoryProvider(MemoryProvider):
                 msg += f" Check that your {vs.get('provider', 'vector store')} is running."
             return json.dumps({"error": msg})
 
-        if tool_name == "mem0_search":
+        if tool_name == "mem0_list":
+            try:
+                page = max(1, int(args.get("page", 1)))
+                page_size = min(max(1, int(args.get("page_size", 100))), 200)
+                response = self._backend.get_all(
+                    filters=self._read_filters(), page=page, page_size=page_size,
+                )
+                self._record_success()
+                results = response.get("results", [])
+                if not results:
+                    return json.dumps({"result": "No memories stored yet."})
+                items = [
+                    {"id": memory.get("id"), "memory": memory.get("memory", "")}
+                    for memory in results
+                ]
+                return json.dumps({
+                    "results": items,
+                    "count": response.get("count", len(items)),
+                    "page": page,
+                    "page_size": page_size,
+                })
+            except Exception as e:
+                if not _is_client_error(e):
+                    self._record_failure()
+                return tool_error(self._format_error("Failed to list memories", e))
+
+        elif tool_name == "mem0_search":
             query = args.get("query", "")
             if not query:
                 return tool_error("Missing required parameter: query")

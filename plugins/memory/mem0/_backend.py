@@ -14,6 +14,10 @@ class Mem0Backend(ABC):
         ...
 
     @abstractmethod
+    def get_all(self, *, filters: dict, page: int = 1, page_size: int = 100) -> dict:
+        ...
+
+    @abstractmethod
     def add(
         self,
         messages: list,
@@ -56,6 +60,12 @@ class PlatformBackend(Mem0Backend):
     def search(self, query: str, *, filters: dict, top_k: int = 10, rerank: bool = False) -> list[dict]:
         response = self._client.search(query, filters=filters, top_k=top_k, rerank=rerank)
         return _unwrap_results(response)
+
+    def get_all(self, *, filters: dict, page: int = 1, page_size: int = 100) -> dict:
+        response = self._client.get_all(filters=filters, page=page, page_size=page_size)
+        results = _unwrap_results(response)
+        count = response.get("count", len(results)) if isinstance(response, dict) else len(results)
+        return {"results": results, "count": count}
 
     def add(
         self,
@@ -118,6 +128,18 @@ class SelfHostedBackend(Mem0Backend):
         if filters:
             body["filters"] = filters  # user_id belongs in filters (top-level is deprecated)
         return _unwrap_results(self._json("POST", "/search", json=body))
+
+    def get_all(self, *, filters: dict, page: int = 1, page_size: int = 100) -> dict:
+        params = {
+            key: value
+            for key in ("user_id", "agent_id", "run_id")
+            if (value := filters.get(key))
+        }
+        params.update({"page": page, "page_size": page_size})
+        response = self._json("GET", "/memories", params=params)
+        results = _unwrap_results(response)
+        count = response.get("count", len(results)) if isinstance(response, dict) else len(results)
+        return {"results": results, "count": count}
 
     def add(
         self,
@@ -272,6 +294,14 @@ class OSSBackend(Mem0Backend):
     def search(self, query: str, *, filters: dict, top_k: int = 10, rerank: bool = False) -> list[dict]:
         response = self._memory.search(query, filters=filters, top_k=top_k)
         return _unwrap_results(response)
+
+    def get_all(self, *, filters: dict, page: int = 1, page_size: int = 100) -> dict:
+        all_results = _unwrap_results(self._memory.get_all(filters=filters))
+        start = (page - 1) * page_size
+        return {
+            "results": all_results[start : start + page_size],
+            "count": len(all_results),
+        }
 
     def add(
         self,
