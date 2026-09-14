@@ -40,6 +40,23 @@ def test_kanban_tools_hidden_without_env_var(monkeypatch, tmp_path):
     )
 
 
+@pytest.mark.parametrize("config", [
+    {"platform_toolsets": {"telegram": ["all", "kanban"]}},
+    {"toolsets": ["kanban"]},
+])
+def test_kanban_explicit_profile_optin_reaches_registry(monkeypatch, config):
+    from tools import kanban_tools
+    from tools.registry import invalidate_check_fn_cache, registry
+    from toolsets import resolve_toolset
+    monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
+    monkeypatch.setattr(kanban_tools, "load_config", lambda: config)
+    invalidate_check_fn_cache()
+    definitions = registry.get_definitions(set(resolve_toolset("kanban")), quiet=True)
+    names = {item["function"]["name"] for item in definitions}
+    assert {"kanban_list", "kanban_create", "kanban_show"} <= names
+    invalidate_check_fn_cache()
+
+
 # ---------------------------------------------------------------------------
 # Handler happy paths
 # ---------------------------------------------------------------------------

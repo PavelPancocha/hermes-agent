@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import List, Optional
 
-from toolsets import TOOLSETS
+from toolsets import TOOLSETS, get_toolset_names
 from tools.delegate_tool_config import _get_inherit_mcp_toolsets
 
 logger = logging.getLogger("tools.delegate_tool")  # log-record parity with the origin module
@@ -38,6 +38,8 @@ def _is_mcp_toolset_name(name: str) -> bool:
 def _expand_parent_toolsets(parent_toolsets: set) -> set:
     """Add every toolset whose tools are a subset of the parent's tools: a parent on a composite like ``hermes-cli``
     must still let a child request ``web``/``terminal``; bare name intersection would reject them."""
+    if parent_toolsets & {"all", "*"}:
+        parent_toolsets = (parent_toolsets - {"all", "*"}) | set(get_toolset_names())
     parent_tool_names = {t for ts_name in parent_toolsets for t in (TOOLSETS.get(ts_name) or {}).get("tools", [])}
     expanded = set(parent_toolsets)
     if parent_tool_names:
@@ -85,6 +87,10 @@ def _resolve_child_toolsets(
         }
     else:
         parent_toolsets = set(DEFAULT_TOOLSETS)
+
+    if parent_toolsets & {"all", "*"}:
+        parent_toolsets = _expand_parent_toolsets(parent_toolsets)
+        parent_enabled = sorted(parent_toolsets)
 
     if toolsets:
         expanded_parent = _expand_parent_toolsets(parent_toolsets)

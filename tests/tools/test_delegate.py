@@ -2294,3 +2294,31 @@ class TestFallbackModelInheritance(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestWildcardToolsetInheritance(unittest.TestCase):
+    @patch("tools.delegate_tool._load_config", return_value={"inherit_mcp_toolsets": False})
+    def test_wildcard_parent_allows_narrowed_tools(self, _config):
+        from tools.delegate_tool_toolsets import _resolve_child_toolsets
+        for wildcard in ("all", "*"):
+            parent = _make_mock_parent()
+            parent.enabled_toolsets = [wildcard, "kanban"]
+            enabled, _ = _resolve_child_toolsets(parent, ["terminal", "file", "web"], "leaf")
+            self.assertEqual(enabled, ["terminal", "file", "web"])
+
+    @patch("tools.delegate_tool._load_config", return_value={"inherit_mcp_toolsets": False})
+    def test_wildcard_inheritance_respects_mcp_optout_and_child_floors(self, _config):
+        from model_tools import _select_tool_names
+        from toolsets import TOOLSETS
+        from tools.delegate_tool_toolsets import _resolve_child_toolsets
+        parent = _make_mock_parent()
+        parent.enabled_toolsets = ["all", "kanban"]
+        with patch.dict(TOOLSETS, {"mcp-fixture": {"tools": ["fixture_mcp_tool"]}}):
+            enabled, disabled = _resolve_child_toolsets(parent, None, "leaf")
+            names = _select_tool_names(enabled, disabled, quiet_mode=True)
+        self.assertNotIn("all", enabled)
+        self.assertNotIn("mcp-fixture", enabled)
+        self.assertNotIn("fixture_mcp_tool", names)
+        self.assertIn("terminal", names)
+        self.assertIn("read_file", names)
+        self.assertTrue(DELEGATE_BLOCKED_TOOLS.isdisjoint(names))

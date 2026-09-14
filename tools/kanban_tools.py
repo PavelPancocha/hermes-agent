@@ -37,7 +37,13 @@ KANBAN_LIST_MAX_LIMIT = 200
 def _profile_has_kanban_toolset() -> bool:
     # load_config() is mtime-cached and check_fn results are TTL-cached (~30s).
     try:
-        return "kanban" in load_config().get("toolsets", [])
+        config = load_config()
+        if "kanban" in config.get("toolsets", []):
+            return True  # Older profiles used the global opt-in.
+        return any(
+            isinstance(names, list) and "kanban" in names
+            for names in (config.get("platform_toolsets") or {}).values()
+        )
     except Exception:
         return False
 
