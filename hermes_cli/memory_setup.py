@@ -214,6 +214,27 @@ def _post_setup_hook(provider, config: dict) -> bool:
     return False
 
 
+def _should_install_dependencies(provider_name: str, argv: list[str] | None = None) -> bool:
+    """Skip the Mem0 SDK for direct self-hosted HTTP setups."""
+    args = list(argv if argv is not None else sys.argv[1:])
+    mode = ""
+    for index, arg in enumerate(args):
+        if arg == "--mode" and index + 1 < len(args):
+            mode = args[index + 1]
+            break
+        if arg.startswith("--mode="):
+            mode = arg.split("=", 1)[1]
+            break
+    mode = mode.lower().replace("-", "_")
+    return provider_name != "mem0" or mode not in {
+        "selfhosted",
+        "self_hosted",
+        "self_hosted_http",
+        "rest",
+        "http",
+    }
+
+
 def cmd_setup_provider(provider_name: str) -> None:
     """Run memory setup for a specific provider, skipping the picker."""
     from hermes_cli.config import load_config, save_config
@@ -226,7 +247,8 @@ def cmd_setup_provider(provider_name: str) -> None:
     name, _, provider = match
 
     _clear_interactive_transition()
-    _install_dependencies(name)
+    if _should_install_dependencies(name):
+        _install_dependencies(name)
     config = load_config()
     if _post_setup_hook(provider, config):
         return

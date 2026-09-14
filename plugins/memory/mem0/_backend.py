@@ -22,6 +22,11 @@ class Mem0Backend(ABC):
 
     @abstractmethod
     def search(self, query: str, *, filters: dict, top_k: int = 10, rerank: bool = False) -> list[dict]: ...
+
+    @abstractmethod
+    def get_all(self, *, filters: dict, page: int = 1, page_size: int = 100) -> dict:
+        ...
+
     @abstractmethod
     def add(self, messages: list, *, user_id: str, agent_id: str, infer: bool = False, metadata: dict | None = None) -> dict: ...
     @abstractmethod
@@ -50,6 +55,12 @@ class PlatformBackend(Mem0Backend):
 
     def search(self, query: str, *, filters: dict, top_k: int = 10, rerank: bool = False) -> list[dict]:
         return _unwrap_results(self._client.search(query, filters=filters, top_k=top_k, rerank=rerank))
+
+    def get_all(self, *, filters: dict, page: int = 1, page_size: int = 100) -> dict:
+        response = self._client.get_all(filters=filters, page=page, page_size=page_size)
+        results = _unwrap_results(response)
+        count = response.get("count", len(results)) if isinstance(response, dict) else len(results)
+        return {"results": results, "count": count}
 
     def add(self, messages: list, *, user_id: str, agent_id: str, infer: bool = False, metadata: dict | None = None) -> dict:
         return self._client.add(messages, **_add_kwargs(user_id, agent_id, infer, metadata))
@@ -80,6 +91,20 @@ class SelfHostedBackend(Mem0Backend):
     def search(self, query: str, *, filters: dict, top_k: int = 10, rerank: bool = False) -> list[dict]:
         # rerank is platform-only; the self-hosted /search ignores it. user_id belongs in filters (top-level is deprecated).
         return _unwrap_results(self._json("POST", "/search", json={"query": query, "top_k": top_k, **({"filters": filters} if filters else {})}))
+
+    def get_all(self, *, filters: dict, page: int = 1, page_size: int = 100) -> dict:
+        params = {
+            key: value
+            for key in ("user_id", "agent_id", "run_id")
+            if (value := filters.get(key))
+        }
+        # ponytail: server caps retrieval at 1000; larger audits need server-side pagination.
+        params["top_k"] = min(page * page_size, 1000)
+        response = self._json("GET", "/memories", params=params)
+        results = _unwrap_results(response)
+        count = response.get("count", len(results)) if isinstance(response, dict) else len(results)
+        start = (page - 1) * page_size
+        return {"results": results[start : start + page_size], "count": count}
 
     def add(self, messages: list, *, user_id: str, agent_id: str, infer: bool = False, metadata: dict | None = None) -> dict:
         return self._json("POST", "/memories", json={"messages": messages, **_add_kwargs(user_id, agent_id, infer, metadata)})
@@ -192,6 +217,14 @@ class OSSBackend(Mem0Backend):
 
     def search(self, query: str, *, filters: dict, top_k: int = 10, rerank: bool = False) -> list[dict]:
         return _unwrap_results(self._memory.search(query, filters=filters, top_k=top_k))
+
+    def get_all(self, *, filters: dict, page: int = 1, page_size: int = 100) -> dict:
+        all_results = _unwrap_results(self._memory.get_all(filters=filters))
+        start = (page - 1) * page_size
+        return {
+            "results": all_results[start : start + page_size],
+            "count": len(all_results),
+        }
 
     def add(self, messages: list, *, user_id: str, agent_id: str, infer: bool = False, metadata: dict | None = None) -> dict:
         return self._memory.add(messages, **_add_kwargs(user_id, agent_id, infer, metadata))

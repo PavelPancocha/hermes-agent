@@ -83,7 +83,7 @@ def _print_dry_run(summary: str, env_writes: dict, check=None) -> None:
 # --oss-vector-<key> flags accepted per vector store (also the pgvector key order).
 _VECTOR_FLAG_KEYS = {"qdrant": ("path", "url"), "pgvector": ("host", "port", "user", "password", "dbname")}
 _FLAG_KEYS = ("mode", "api_key", "host", *(f"oss_{s}{k}" for s in ("llm", "embedder") for k in ("", "_key", "_model", "_url")),
-              "oss_vector", *(f"oss_vector_{k}" for ks in _VECTOR_FLAG_KEYS.values() for k in ks), "user_id")
+              "oss_vector", *(f"oss_vector_{k}" for ks in _VECTOR_FLAG_KEYS.values() for k in ks), "user_id", "agent_id")
 _FLAG_DEFAULTS = {"oss_llm": "openai", "oss_embedder": "openai", "oss_vector": "qdrant"}
 
 
@@ -91,6 +91,7 @@ def parse_flags(argv: list[str] | None = None) -> dict[str, str]:
     args = argv if argv is not None else sys.argv[1:]
     flags: dict[str, Any] = {**{k: _FLAG_DEFAULTS.get(k, "") for k in _FLAG_KEYS}, "dry_run": False}
     flag_map = {"--" + k.replace("_", "-"): k for k in _FLAG_KEYS}
+    flag_map["--api-url"] = "host"
     i = 0
     while i < len(args):
         if args[i] == "--dry-run":
@@ -215,11 +216,12 @@ def _setup_selfhosted(hermes_home: str, config: dict, flags: dict[str, str]) -> 
     host = host.rstrip("/")
     env_writes = _api_key_writes(flags, "Server API key", fresh_label="Server API key (blank if AUTH_DISABLED)")
     user_id = flags.get("user_id") or _prompt("User identifier", default=provider_config.get("user_id") or "hermes-user")
-    agent_id = _prompt("Agent identifier", default=provider_config.get("agent_id") or "hermes")
+    agent_id = flags.get("agent_id") or _prompt("Agent identifier", default=provider_config.get("agent_id") or "hermes")
     if flags.get("dry_run"):
         _print_dry_run(f"host={host}, user_id={user_id}, agent_id={agent_id}", env_writes, lambda: _check_selfhosted_server(host))
         return
-    provider_config.update(mode="platform", host=host, user_id=user_id, agent_id=agent_id)  # routing: oss > host > platform
+    mode = "self_hosted_http" if flags.get("mode") in {"self_hosted_http", "self-hosted-http", "rest", "http"} else "platform"
+    provider_config.update(mode=mode, host=host, user_id=user_id, agent_id=agent_id)  # routing: oss > host > platform
     _persist_provider_config(hermes_home, config, provider_config, env_writes, "mem0 (self-hosted)", "API key saved to .env", server=host)
 
 
@@ -491,6 +493,7 @@ def _run_connectivity_checks(oss_config: dict) -> None:
 
 
 _MODE_HANDLERS = {"oss": _setup_oss, "selfhosted": _setup_selfhosted, "self-hosted": _setup_selfhosted, "platform": _setup_platform}
+_MODE_HANDLERS.update(dict.fromkeys(("self_hosted_http", "self-hosted-http", "rest", "http"), _setup_selfhosted))
 # Interactive picker order: Platform, Self-hosted server, Open Source.
 _MODE_ITEMS = [("Platform", "Mem0 Cloud API (lightweight, just needs an API key)"), ("Self-hosted server", "Connect to an existing self-hosted Mem0 server (Docker/FastAPI)"), ("Open Source", "Run Mem0 locally (self-hosted LLM + vector store)")]
 _MODE_PICKER = (_setup_platform, _setup_selfhosted, _setup_oss)

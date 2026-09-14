@@ -668,6 +668,24 @@ class TestSelfHostedBackend:
 
     # --- search ----------------------------------------------------------
 
+    def test_get_all_maps_pagination_to_supported_top_k_and_slices(self):
+        server = _StubServer(rows=3)
+        result = _backend(server).get_all(
+            filters={"user_id": "beka", "ignored": "value"},
+            page=2,
+            page_size=2,
+        )
+
+        request = server.requests[0]
+        assert request.method == "GET"
+        assert request.url.path == "/memories"
+        assert dict(request.url.params) == {
+            "user_id": "beka",
+            "top_k": "4",
+        }
+        assert result["results"] == [{"id": "m2", "memory": "f2"}]
+        assert result["count"] == 3
+
 
     # --- add / update / delete ------------------------------------------
 

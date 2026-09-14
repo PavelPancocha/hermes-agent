@@ -193,7 +193,13 @@ async def api_auth_providers() -> Any:
 # --- Public: OAuth round trip ----------------------------------------------
 
 @router.get("/auth/login", name="auth_login")
-async def auth_login(request: Request, provider: str, next: str = ""):
+async def auth_login(request: Request, provider: str = "", next: str = ""):
+    if not provider:
+        safe_next = _validate_post_login_target(next)
+        login_url = f"{_prefix(request)}/login"
+        if safe_next:
+            login_url = f"{login_url}?next={quote(safe_next, safe='')}"
+        return RedirectResponse(url=login_url, status_code=302)
     p = get_provider(provider)
     if p is None:
         raise _http(404, f"Unknown provider: {provider!r}")

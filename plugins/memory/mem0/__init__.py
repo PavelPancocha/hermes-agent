@@ -93,6 +93,8 @@ def _schema(name: str, description: str, properties: dict[str, tuple[str, str]],
 
 
 TOOL_SCHEMAS = [
+    _schema("mem0_list", "List stored memories about the user, unranked and paginated. Use for an overview or audit; prefer mem0_search for a specific question.",
+            {"page": ("integer", "Page number (default: 1)."), "page_size": ("integer", "Results per page (default: 100, max: 200).")}, []),
     _schema("mem0_search", "Search the user's memories by meaning; returns facts ranked by relevance. Use this before answering any question that may depend on what you know about the user (preferences, facts, history, people, projects, past decisions). For multi-part or multi-hop questions, call it several times — vary the wording and run follow-up searches on what earlier results reveal; one search is rarely enough.",
             {"query": ("string", "What to search for."), "top_k": ("integer", "Max results (default: 10, max: 50)."), "rerank": ("boolean", "Rerank results for relevance (default: false, platform mode only).")}, ["query"]),
     _schema("mem0_add", "Store a durable fact about the user, verbatim (no LLM extraction). Call this the moment the user states a lasting preference, correction, decision, or personal detail worth recalling on future turns — don't wait to be asked to remember. Skip transient chit-chat and facts you've already stored.",
@@ -106,7 +108,7 @@ TOOL_SCHEMAS = [
 _PROMPT_BODY = (
     "You have persistent memory of this user from past conversations. You should call mem0_search before answering anything that could depend on prior context (the user's preferences, facts, history, people, projects, or earlier decisions) — do not rely on the chat window alone, and do not assume you have no memory.\n"
     "For multi-part or multi-hop questions, run several searches with different wording/angles and follow-up searches on what the first results surface; one search is rarely enough. Keep searching until you have every fact the question needs before you answer.\n"
-    "Tools: mem0_search to find memories, mem0_add to store facts, mem0_update and mem0_delete to manage by ID."
+    "Tools: mem0_search to find memories, mem0_add to store facts, mem0_list for a full overview, mem0_update and mem0_delete to manage by ID."
 )
 
 
@@ -160,9 +162,10 @@ class Mem0MemoryProvider(MemoryProvider):
     def _create_backend(self):
         # Lazy-install the mem0 SDK before the backend imports it (honors security.allow_lazy_installs);
         # on failure the backend import raises the canonical error, captured below.
-        with suppress(Exception):
-            from tools.lazy_deps import ensure as _lazy_ensure
-            _lazy_ensure("memory.mem0", prompt=False)
+        if self._mode == "oss" or not self._host:
+            with suppress(Exception):
+                from tools.lazy_deps import ensure as _lazy_ensure
+                _lazy_ensure("memory.mem0", prompt=False)
         try:
             from . import _backend
             if self._mode == "oss":
@@ -316,6 +319,16 @@ class Mem0MemoryProvider(MemoryProvider):
     # Client errors (bad ID / not found) never trip the breaker, except for mem0_add
     # where they count as failures; update/delete answer them with "Memory not found".
 
+    def _tool_list(self, args: dict) -> str:
+        page = max(1, int(args.get("page", 1)))
+        page_size = min(max(1, int(args.get("page_size", 100))), 200)
+        response = self._backend.get_all(filters={"user_id": self._user_id}, page=page, page_size=page_size)
+        results = response.get("results", [])
+        if not results:
+            return json.dumps({"result": "No memories stored yet."})
+        items = [{"id": r.get("id"), "memory": r.get("memory", "")} for r in results]
+        return json.dumps({"results": items, "count": response.get("count", len(items)), "page": page, "page_size": page_size})
+
     def _tool_search(self, args: dict) -> str:
         top_k = max(1, min(int(args.get("top_k", 10)), 50))
         rerank_raw = args.get("rerank", self._rerank_default)
@@ -334,6 +347,7 @@ class Mem0MemoryProvider(MemoryProvider):
         return json.dumps({"result": msg, "event_id": event_id})
 
     _TOOL_HANDLERS = {
+        "mem0_list": ((), "Failed to list memories", _tool_list, "skip"),
         "mem0_search": (("query",), "Search failed", _tool_search, "skip"),
         "mem0_add": (("content",), "Failed to store", _tool_add, "count"),
         "mem0_update": (("memory_id", "text"), "Update failed", lambda self, a: json.dumps(self._backend.update(a["memory_id"], a["text"])), "not_found"),

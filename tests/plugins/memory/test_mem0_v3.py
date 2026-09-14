@@ -71,6 +71,26 @@ class TestMem0V3Tools:
         assert call[2]["agent_id"] == "hermes"
         assert "event_id" in result
 
+    def test_tool_args_cannot_override_configured_scope(self, monkeypatch):
+        backend = FakeBackend()
+        provider = self._make_provider(monkeypatch, backend)
+
+        provider.handle_tool_call("mem0_search", {
+            "query": "hello", "user_id": "other", "filters": {"user_id": "other"},
+        })
+        provider.handle_tool_call("mem0_list", {"user_id": "other"})
+        provider.handle_tool_call("mem0_add", {
+            "content": "fact", "user_id": "other", "agent_id": "other",
+        })
+
+        assert backend.captured[0][2]["filters"] == {"user_id": "u123"}
+        assert backend.captured[1][1]["filters"] == {"user_id": "u123"}
+        assert backend.captured[2][2]["user_id"] == "u123"
+        assert backend.captured[2][2]["agent_id"] == "hermes"
+        forbidden = {"user_id", "agent_id", "run_id", "filters"}
+        for schema in provider.get_tool_schemas():
+            assert forbidden.isdisjoint(schema["parameters"].get("properties", {}))
+
 
     def test_old_tool_names_return_unknown(self, monkeypatch):
         backend = FakeBackend()
@@ -288,11 +308,11 @@ class TestMem0Prefetch:
 
 class TestMem0V3Config:
 
-    def test_tool_schemas_four_tools(self):
+    def test_tool_schemas_keep_mem0_list_compatibility(self):
         provider = Mem0MemoryProvider()
         schemas = provider.get_tool_schemas()
         names = [s["name"] for s in schemas]
-        assert names == ["mem0_search", "mem0_add", "mem0_update", "mem0_delete"]
+        assert {"mem0_list", "mem0_search", "mem0_add", "mem0_update", "mem0_delete"} <= set(names)
 
     def test_system_prompt_new_tool_names(self):
         provider = Mem0MemoryProvider()
@@ -302,7 +322,7 @@ class TestMem0V3Config:
         assert "mem0_add" in block
         assert "mem0_update" in block
         assert "mem0_delete" in block
-        assert "mem0_list" not in block
+        assert "mem0_list" in block
         assert "mem0_profile" not in block
         assert "mem0_conclude" not in block
 
@@ -426,6 +446,17 @@ class TestCreateBackendRouting:
         assert isinstance(backend, SH)
         assert captured["args"] == ("adminkey", "http://sh:8888")
 
+    def test_selfhosted_does_not_lazy_install_mem0_sdk(self, monkeypatch):
+        from unittest.mock import Mock
+        ensure = Mock()
+        monkeypatch.setattr("tools.lazy_deps.ensure", ensure)
+        provider = self._provider(
+            monkeypatch, host="http://sh:8888", api_key="adminkey"
+        )
+
+        assert provider._create_backend() is not None
+        ensure.assert_not_called()
+
 
     def test_oss_mode_takes_precedence_over_host(self, monkeypatch):
         class OB(_SentinelBackend):
@@ -453,5 +484,3 @@ class TestSelfHostedConfig:
     def test_load_config_reads_mem0_host_env(self, monkeypatch):
         monkeypatch.setenv("MEM0_HOST", "http://localhost:8888")
         assert mem0_plugin._load_config()["host"] == "http://localhost:8888"
-
-

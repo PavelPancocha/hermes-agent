@@ -94,10 +94,10 @@ def _resolve_child_toolsets(
             child_toolsets += [
                 name for name in sorted(parent_toolsets) if _is_mcp_toolset_name(name) and name not in child_toolsets
             ]
-    elif parent_agent and parent_enabled is not None:
-        child_toolsets = parent_enabled
     else:
-        child_toolsets = sorted(parent_toolsets) or DEFAULT_TOOLSETS
+        child_toolsets = list(parent_enabled) if parent_agent and parent_enabled is not None else sorted(parent_toolsets) or list(DEFAULT_TOOLSETS)
+        if not _get_inherit_mcp_toolsets():
+            child_toolsets = [name for name in child_toolsets if not _is_mcp_toolset_name(name)]
     child_toolsets = _strip_blocked_tools(child_toolsets)
 
     raw_parent_disabled = getattr(parent_agent, "disabled_toolsets", None)

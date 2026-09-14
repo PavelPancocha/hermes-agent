@@ -208,6 +208,13 @@ class TestProviderListFlag:
         assert '<form class="provider-form" data-provider="testpw"' in login.text
         assert "/auth/password-login" in login.text
 
+    def test_login_without_provider_redirects_to_login_form(self, gated_app):
+        resp = gated_app.get(
+            "/auth/login?next=%2Fsessions", follow_redirects=False
+        )
+        assert resp.status_code == 302
+        assert resp.headers["location"] == "/login?next=%2Fsessions"
+
 
     def test_oauth_provider_reports_false(self):
         clear_providers()
@@ -372,4 +379,3 @@ class TestLoginPageRender:
             assert "/auth/password-login" not in html
         finally:
             clear_providers()
-
