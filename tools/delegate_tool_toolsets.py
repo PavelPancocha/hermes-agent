@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import List, Optional
 
-from toolsets import TOOLSETS, resolve_toolset
+from toolsets import TOOLSETS, TOOLSET_SESSION_PLATFORMS, get_toolset_names, resolve_toolset
 from tools.delegate_tool_config import _get_inherit_mcp_toolsets
 
 logger = logging.getLogger("tools.delegate_tool")  # log-record parity with the origin module
@@ -40,6 +40,10 @@ def _expand_parent_toolsets(parent_toolsets: set) -> set:
     must still let a child request ``web``/``terminal``; bare name intersection would reject them. Both sides use
     the RESOLVED static surface: a composite's ``includes`` (``debugging`` -> ``web``/``file``, ``safe``) are tools
     the parent genuinely holds, and the child never gains a tool the parent lacks."""
+    if parent_toolsets & {"all", "*"}:
+        parent_toolsets = (parent_toolsets - {"all", "*"}) | (
+            set(get_toolset_names()) - set(TOOLSET_SESSION_PLATFORMS)
+        )
     parent_tool_names = {
         t for ts_name in parent_toolsets if ts_name in TOOLSETS for t in resolve_toolset(ts_name, include_registry=False)
     }
@@ -95,6 +99,10 @@ def _resolve_child_toolsets(
     else:
         parent_toolsets = set(DEFAULT_TOOLSETS)
 
+    if parent_toolsets & {"all", "*"}:
+        parent_toolsets = _expand_parent_toolsets(parent_toolsets)
+        parent_enabled = sorted(parent_toolsets)
+
     if toolsets:
         expanded_parent = _expand_parent_toolsets(parent_toolsets)
         child_toolsets = [t for t in toolsets if t in expanded_parent]
@@ -103,10 +111,14 @@ def _resolve_child_toolsets(
             child_toolsets += [
                 name for name in sorted(parent_toolsets) if _is_mcp_toolset_name(name) and name not in child_toolsets
             ]
-    elif parent_agent and parent_enabled is not None:
-        child_toolsets = parent_enabled
     else:
-        child_toolsets = sorted(parent_toolsets) or DEFAULT_TOOLSETS
+        child_toolsets = (
+            list(parent_enabled)
+            if parent_agent and parent_enabled is not None
+            else sorted(parent_toolsets) or list(DEFAULT_TOOLSETS)
+        )
+        if not _get_inherit_mcp_toolsets():
+            child_toolsets = [name for name in child_toolsets if not _is_mcp_toolset_name(name)]
     child_toolsets = _strip_blocked_tools(child_toolsets)
 
     raw_parent_disabled = getattr(parent_agent, "disabled_toolsets", None)

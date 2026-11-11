@@ -735,3 +735,19 @@ class TestLoginPageWholeClassPrefix:
         )
         assert "data-prefix" not in html
         assert "url('/fonts/" in html
+
+
+@pytest.mark.parametrize(
+    "next_target, location",
+    [("/sessions", "/hermes/login?next=%2Fsessions"), ("", "/hermes/login"),
+     ("https://outside.invalid/session", "/hermes/login"), ("//outside.invalid/session", "/hermes/login")],
+)
+def test_login_without_provider_preserves_forwarded_prefix(
+    gated_app_proxied: TestClient, next_target: str, location: str,
+) -> None:
+    response = gated_app_proxied.get(
+        "/auth/login", params={"next": next_target},
+        headers={"X-Forwarded-Prefix": "/hermes"}, follow_redirects=False,
+    )
+    assert response.status_code == 302
+    assert response.headers["location"] == location

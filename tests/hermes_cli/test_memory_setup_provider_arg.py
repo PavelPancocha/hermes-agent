@@ -7,6 +7,8 @@ because the per-provider ``hermes <provider>`` subcommand is only registered
 once that provider is active.
 """
 
+import argparse
+
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -31,3 +33,18 @@ class TestMemorySetupProviderRouting:
         out = capsys.readouterr().out
         assert "not found" in out
         assert "hermes memory setup" in out
+
+
+def test_setup_parser_preserves_complete_provider_arguments() -> None:
+    from hermes_cli.subcommands.memory import build_memory_parser
+
+    parser = argparse.ArgumentParser()
+    build_memory_parser(parser.add_subparsers(dest="command"), cmd_memory=memory_setup.memory_command)
+    provider_args = [
+        "--mode", "self_hosted_http", "--host", "https://memory.invalid/api",
+        "--api-key", "synthetic-key", "--user-id", "exact-user", "--agent-id", "exact-agent",
+    ]
+    args = parser.parse_args(["memory", "setup", "mem0", *provider_args])
+    assert args.provider == "mem0"
+    assert args.provider_args == provider_args
+    assert args.func is memory_setup.memory_command

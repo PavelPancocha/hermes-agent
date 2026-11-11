@@ -1,0 +1,4 @@
+name: mem0
+version: 1.3.0+bezklikani.rest1
+description: "BezKlikani Mem0 provider — self-hosted REST only; adapted from pinned Mem0 vendor source."
+pip_dependencies: []

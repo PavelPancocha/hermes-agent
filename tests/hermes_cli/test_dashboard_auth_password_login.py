@@ -473,3 +473,16 @@ class TestLoginPageRender:
         finally:
             clear_providers()
 
+
+
+@pytest.mark.parametrize(
+    "next_target, location",
+    [("/sessions", "/login?next=%2Fsessions"), ("", "/login"),
+     ("https://outside.invalid/session", "/login"), ("//outside.invalid/session", "/login")],
+)
+def test_login_without_provider_uses_safe_login_page(
+    gated_app: TestClient, next_target: str, location: str,
+) -> None:
+    response = gated_app.get("/auth/login", params={"next": next_target}, follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == location

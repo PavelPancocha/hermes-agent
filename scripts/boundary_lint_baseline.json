@@ -202,6 +202,7 @@
     "plugins/kanban/dashboard/plugin_api.py hermes_cli.web_server_chat": 1,
     "plugins/memory/byterover/__init__.py tools.environments.local.build_subprocess_env": 1,
     "plugins/memory/byterover/__init__.py tools.environments.local.strip_launch_profile_env": 1,
+    "plugins/memory/mem0/_setup.py utils.atomic_write_text": 1,
     "plugins/memory/retaindb/__init__.py agent.file_safety.raise_if_read_blocked": 1,
     "plugins/model-providers/actual/__init__.py agent.reasoning_effort.ACTUAL_RELAY_EFFORTS": 1,
     "plugins/model-providers/actual/__init__.py agent.reasoning_effort.thinking_toggle_extras": 1,
