@@ -8,6 +8,15 @@ from typing import Callable
 from hermes_cli.subcommands._shared import add_yes_flag
 
 
+class _SetupProviderArguments(argparse.Action):
+    def __call__(self, parser: argparse.ArgumentParser, namespace: argparse.Namespace,
+                 values: list[str], option_string: str | None = None) -> None:
+        if "-h" in values or "--help" in values:
+            parser.print_help()
+            parser.exit()
+        setattr(namespace, self.dest, values)
+
+
 def build_memory_parser(subparsers, *, cmd_memory: Callable) -> None:
     """Attach the ``memory`` subcommand to ``subparsers``."""
     memory_parser = subparsers.add_parser(
@@ -25,7 +34,8 @@ def build_memory_parser(subparsers, *, cmd_memory: Callable) -> None:
         "provider", nargs="?", default=None,
         help="Provider to configure directly (e.g. honcho), skipping the picker")
     _setup_parser.add_argument(
-        "provider_args", nargs=argparse.REMAINDER, default=[], metavar="PROVIDER_ARG",
+        "provider_args", nargs=argparse.REMAINDER, action=_SetupProviderArguments,
+        default=[], metavar="PROVIDER_ARG",
         help="Provider-specific setup arguments passed through to the selected provider")
     memory_sub.add_parser("status", help="Show current memory provider config")
     memory_sub.add_parser("off", help="Disable external provider (built-in only)")

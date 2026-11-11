@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from pathlib import Path
+from unittest.mock import Mock
 
 import httpx
 import pytest
@@ -186,3 +187,40 @@ def test_supported_modes_preserve_volume_bytes(tmp_path: Path, monkeypatch: pyte
     finally:
         provider.shutdown()
         reset_secret_scope(token)
+
+
+@pytest.mark.parametrize("field", ["host", "api_key", "user_id", "agent_id"])
+def test_missing_config_field_names_setup_command(field: str) -> None:
+    from plugins.memory.mem0 import _rest_config_error
+
+    cfg = {"mode": "rest", "host": "https://memory.invalid/api", "api_key": "synthetic-key", "user_id": "u", "agent_id": "a"}
+    del cfg[field]
+    reason = _rest_config_error(cfg)
+    assert field in reason
+    assert "hermes memory setup mem0" in reason
+
+
+def test_shutdown_bounds_both_blocked_threads_and_warns(caplog: pytest.LogCaptureFixture) -> None:
+    from plugins.memory.mem0 import Mem0MemoryProvider
+
+    class BlockedThread:
+        def __init__(self, name: str) -> None:
+            self.name = name
+            self.timeouts: list[float] = []
+
+        def is_alive(self) -> bool:
+            return True
+
+        def join(self, timeout: float | None = None) -> None:
+            assert timeout is not None and 0 < timeout <= 5.0, "unbounded shutdown join"
+            self.timeouts.append(timeout)
+
+    provider = Mem0MemoryProvider()
+    backend = provider._backend = Mock()
+    prefetch = provider._prefetch_thread = BlockedThread("mem0-prefetch")
+    sync = provider._sync_thread = BlockedThread("mem0-sync")
+    provider.shutdown()
+    assert prefetch.timeouts == sync.timeouts == [5.0]
+    assert "mem0-prefetch" in caplog.text and "mem0-sync" in caplog.text
+    backend.close.assert_called_once_with()
+    assert provider._backend is None

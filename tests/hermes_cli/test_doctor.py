@@ -418,11 +418,29 @@ class TestDoctorMemoryProviderSection:
 
 
     def test_catalog_provider_not_installed_names_install_command(self, monkeypatch, tmp_path):
-        # mem0 left core for the plugin catalog: a home still configured for it gets the exact command.
-        out = self._run_doctor_and_capture(monkeypatch, tmp_path, provider="mem0")
+        # An absent catalog provider names the command that installs it.
+        out = self._run_doctor_and_capture(monkeypatch, tmp_path, provider="honcho")
         section = out.split("Memory Provider", 1)[1][:600]
         assert "Built-in memory active" not in out
-        assert "mem0 plugin not found" in section and "plugins install mem0" in section
+        assert "honcho plugin not found" in section and "plugins install honcho" in section
+
+    def test_unconfigured_bundled_mem0_is_found_but_not_available(self, monkeypatch, tmp_path) -> None:
+        from plugins.memory import find_provider_dir, load_memory_provider
+        from unittest.mock import patch
+
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+        for name in ("MEM0_MODE", "MEM0_HOST", "MEM0_API_KEY", "MEM0_USER_ID", "MEM0_AGENT_ID"):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setattr("httpx.Client", lambda *a, **kw: pytest.fail("doctor must not construct a Mem0 client"))
+        assert find_provider_dir("mem0") is not None
+        with patch("plugins.memory.load_memory_provider", wraps=load_memory_provider) as load:
+            out = self._run_doctor_and_capture(monkeypatch, tmp_path, provider="mem0")
+        load.assert_called_once_with("mem0")
+        section = out.split("Memory Provider", 1)[1][:600]
+        assert "mem0 configured but not available" in section
+        assert "mem0 plugin not found" not in section
+        assert "plugins install mem0" not in section
+        assert "mem0 provider active" not in section
 
     @pytest.mark.parametrize("memory_enabled", [False, True])
     def test_stale_builtin_files_reported_only_when_store_enabled(

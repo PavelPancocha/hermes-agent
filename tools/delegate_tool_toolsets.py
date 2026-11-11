@@ -104,7 +104,14 @@ def _resolve_child_toolsets(
         parent_enabled = sorted(parent_toolsets)
 
     if toolsets:
+        from tools.registry import registry
+
         expanded_parent = _expand_parent_toolsets(parent_toolsets)
+        canonical_names = set(TOOLSETS) | set(registry.get_registered_toolset_names()) | {"all", "*"}
+        for alias, target in registry.get_registered_toolset_aliases().items():
+            if (alias not in canonical_names and target.startswith("mcp-")
+                    and (alias in expanded_parent or target in expanded_parent)):
+                expanded_parent.update((alias, target))
         child_toolsets = [t for t in toolsets if t in expanded_parent]
         if _get_inherit_mcp_toolsets():
             # Append any parent MCP toolsets missing from the narrowed child.

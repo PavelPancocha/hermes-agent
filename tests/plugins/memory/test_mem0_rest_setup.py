@@ -106,7 +106,7 @@ def test_unsupported_mode_exits_before_prompt_or_mutation(setup_home, monkeypatc
     assert _bytes(setup_home) == before
 
 
-@pytest.mark.parametrize("bad_flags", [["--wat=do-not-echo"], ["--api-key"], ["--host", "--api-key", "do-not-echo"], ["--dry-run=do-not-echo"]])
+@pytest.mark.parametrize("bad_flags", [["--wat=do-not-echo"], ["-x"], ["--api-key", "-x"], ["--api-key"], ["--host", "--api-key", "do-not-echo"], ["--dry-run=do-not-echo"]])
 def test_invalid_flags_fail_without_prompt_or_supplied_value(setup_home, monkeypatch, capsys, bad_flags) -> None:
     from plugins.memory.mem0 import _setup
     before = _bytes(setup_home)
@@ -175,3 +175,12 @@ def test_api_key_prompt_shows_configured_without_key_suffix(setup_home, monkeypa
     assert labels and "configured" in labels[0]
     assert "synthetic-old-env-key" not in labels[0]
     assert "-key" not in labels[0]
+
+
+@pytest.mark.parametrize("argv", [["-x"], ["memory", "setup", "mem0", "-x"]])
+def test_provider_parser_rejects_unknown_single_dash_flags(argv: list[str]) -> None:
+    from plugins.memory.mem0._setup import parse_flags
+
+    with pytest.raises(SystemExit, match="Invalid Mem0 setup arguments") as exc:
+        parse_flags(argv)
+    assert exc.value.code != 0

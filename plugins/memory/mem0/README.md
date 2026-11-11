@@ -25,11 +25,14 @@ Local changes:
   (default 100). It is not a complete export: page 6 at size 200 is empty, and
   `count` describes the returned server window. Larger audits need server pagination.
 - Retain vendor circuit breaking, validation, automatic turn extraction and its
-  message truncation limit, profile-aware prefetch/sync threads, and shutdown drain.
+  message truncation limit, profile-aware prefetch/sync threads, and bounded shutdown waits.
+  Shutdown joins each background thread for up to five seconds and warns if it
+  remains alive; unfinished sync may be lost when the backend closes.
   Four reviewed per-line code-health exceptions preserve the vendor catch-all error
   policies; Python type syntax is updated for the target lint rules.
 - Retain the existing setup command, adding agent ID, `--api-url`, equals-form flags,
-  strict provider flag validation and a dry run without writes or network probes.
+  strict provider flag validation (including unknown single-dash flags) and a dry
+  run without writes or network probes. Provider help returns before setup starts.
 
 Setup with synthetic placeholders (supply your actual scoped key privately):
 

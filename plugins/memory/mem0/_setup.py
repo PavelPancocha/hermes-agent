@@ -61,24 +61,21 @@ def parse_flags(argv: list[str] | None = None) -> SetupFlags:
     flags: SetupFlags = {"mode": "", "api_key": "", "host": "", "user_id": "", "agent_id": "", "dry_run": False}
     flag_map = {"--" + key.replace("_", "-"): key for key in _FLAG_KEYS}
     flag_map["--api-url"] = "host"
-    after_provider = False
     i = 0
     while i < len(args):
         token, equals, value = args[i].partition("=")
-        if token == "mem0":
-            after_provider = True
-        elif token == "--dry-run" and not equals:
+        if token == "--dry-run" and not equals:
             flags["dry_run"] = True
         elif token in flag_map:
             if not equals:
                 i += 1
-                if i >= len(args) or args[i].startswith("--"):
+                if i >= len(args) or args[i].startswith("-"):
                     raise SystemExit("Invalid Mem0 setup arguments: missing flag value.")
                 value = args[i]
             if not value:
                 raise SystemExit("Invalid Mem0 setup arguments: missing flag value.")
             flags[flag_map[token]] = value
-        elif after_provider and token.startswith("--"):
+        elif token.startswith("-"):
             raise SystemExit("Invalid Mem0 setup arguments: unrecognized flag.")
         i += 1
     return flags

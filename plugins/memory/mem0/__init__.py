@@ -93,7 +93,7 @@ def _rest_config_error(cfg: dict[str, Any]) -> str:
     for key in ("host", "api_key", "user_id", "agent_id"):
         value = cfg.get(key)
         if not isinstance(value, str) or not value.strip():
-            return f"Mem0 REST requires configured {key}."
+            return f"Mem0 REST requires configured {key}. Run 'hermes memory setup mem0'."
     try:
         url = urlsplit(cfg["host"])
         valid = (url.scheme in {"http", "https"} and url.hostname
@@ -426,9 +426,9 @@ class Mem0MemoryProvider(MemoryProvider):
     def shutdown(self) -> None:
         for t in (self._prefetch_thread, self._sync_thread):
             if t and t.is_alive():
-                # Extraction can outlast five seconds. Closing storage underneath it
-                # loses the turn; let the backend's network timeouts bound the drain.
-                t.join()
+                t.join(timeout=5.0)
+                if t.is_alive():
+                    logger.warning("Mem0 background thread %s is still running after the 5s shutdown wait.", t.name)
         self._shutdown_backend()
 
 

@@ -114,3 +114,78 @@ def test_orchestrator_role_retains_delegation_grant(monkeypatch: pytest.MonkeyPa
     assert "delegate_task" in tools
     assert not tools.intersection(DELEGATE_BLOCKED_TOOLS - {"delegate_task"})
     assert not any(name.startswith("kanban_") for name in tools)
+
+
+@pytest.fixture
+def snip_toolset(mcp_toolset: str) -> str:
+    registry.register(
+        name="snip_tool", toolset="mcp-snip",
+        schema={"name": "snip_tool", "parameters": {"type": "object", "properties": {}}},
+        handler=lambda args, **kwargs: "{}",
+    )
+    registry.register_toolset_alias("snip", "mcp-snip")
+    return "mcp-snip"
+
+
+@pytest.mark.parametrize("parent_name", ["all", "*", "mcp-snip", "snip"])
+@pytest.mark.parametrize("requested_name", ["mcp-snip", "snip"])
+def test_explicit_mcp_canonical_and_alias_share_parent_authorization(
+    monkeypatch: pytest.MonkeyPatch, snip_toolset: str, parent_name: str, requested_name: str,
+) -> None:
+    monkeypatch.setattr(delegate_tool, "_load_config", lambda: {"inherit_mcp_toolsets": False})
+    original = [parent_name]
+    parent = SimpleNamespace(enabled_toolsets=original, disabled_toolsets=session_disabled_toolsets([], "cli"))
+    enabled, disabled, tools = child_selection(parent, [requested_name])
+    assert enabled == [requested_name]
+    assert tools == {"snip_tool"}
+    assert "kanban" in disabled
+    assert not tools.intersection(DELEGATE_BLOCKED_TOOLS)
+    assert original == [parent_name]
+
+
+@pytest.mark.parametrize("parent_name", ["mcp-snip", "snip"])
+@pytest.mark.parametrize("requested_name", ["mcp-fork-contract", "fork-contract-alias"])
+def test_mcp_alias_equivalence_does_not_authorize_unrelated_parent_toolsets(
+    monkeypatch: pytest.MonkeyPatch, snip_toolset: str, parent_name: str, requested_name: str,
+) -> None:
+    monkeypatch.setattr(delegate_tool, "_load_config", lambda: {"inherit_mcp_toolsets": False})
+    enabled, _, tools = child_selection(SimpleNamespace(enabled_toolsets=[parent_name]), [requested_name])
+    assert enabled == []
+    assert tools == set()
+
+
+@pytest.mark.parametrize("requested_name", ["mcp-snip", "snip"])
+def test_mcp_alias_equivalence_keeps_parent_disabled_tools_denied(
+    monkeypatch: pytest.MonkeyPatch, snip_toolset: str, requested_name: str,
+) -> None:
+    monkeypatch.setattr(delegate_tool, "_load_config", lambda: {"inherit_mcp_toolsets": False})
+    parent = SimpleNamespace(enabled_toolsets=["all"], disabled_toolsets=["mcp-snip"])
+    _, disabled, tools = child_selection(parent, [requested_name])
+    assert "mcp-snip" in disabled
+    assert tools == set()
+
+
+@pytest.mark.parametrize("alias_name", ["web", "all", "*"])
+def test_mcp_alias_collision_cannot_grant_builtin_toolset(
+    monkeypatch: pytest.MonkeyPatch, snip_toolset: str, alias_name: str,
+) -> None:
+    monkeypatch.setattr(delegate_tool, "_load_config", lambda: {"inherit_mcp_toolsets": False})
+    registry.register_toolset_alias(alias_name, "mcp-snip")
+    enabled, _, tools = child_selection(SimpleNamespace(enabled_toolsets=["mcp-snip"]), [alias_name])
+    assert enabled == []
+    assert tools == set()
+
+
+@pytest.mark.parametrize("parent_name, requested_name", [("mcp-snip", "snip"), ("snip", "mcp-snip")])
+def test_mcp_alias_collision_cannot_grant_distinct_registry_toolset(
+    monkeypatch: pytest.MonkeyPatch, snip_toolset: str, parent_name: str, requested_name: str,
+) -> None:
+    monkeypatch.setattr(delegate_tool, "_load_config", lambda: {"inherit_mcp_toolsets": False})
+    registry.register(
+        name="unrelated_tool", toolset="snip",
+        schema={"name": "unrelated_tool", "parameters": {"type": "object", "properties": {}}},
+        handler=lambda args, **kwargs: "{}",
+    )
+    enabled, _, tools = child_selection(SimpleNamespace(enabled_toolsets=[parent_name]), [requested_name])
+    assert enabled == []
+    assert tools == set()
